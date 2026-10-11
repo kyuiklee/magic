@@ -60,7 +60,9 @@ def main():
     hist = D.load_histories(list(univ["code"]))
     if len(hist) < 1000:
         raise SystemExit(f"일봉 수집 종목이 너무 적습니다 ({len(hist)}) — 데이터 소스 문제")
+    print(f"일봉 완료 ({time.time() - t0:.0f}초)")
     fund = FD.load(list(hist)) or {}
+    print(f"재무 완료 ({time.time() - t0:.0f}초)")
 
     # ----- 달력: 코스피 지수 거래일 (없으면 종목 일봉 합집합) -----
     idx = D.index_daily()

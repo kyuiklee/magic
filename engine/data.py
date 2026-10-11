@@ -29,10 +29,13 @@ def _clean(df):
 
 
 def _industry():
-    """KRX 업종(한국표준산업분류). 실패하면 빈 표"""
+    """KRX 업종(한국표준산업분류). 실패하거나 90초 넘게 걸리면 빈 표 (종목명으로 금융 판단)"""
     try:
         import FinanceDataReader as fdr
-        d = fdr.StockListing("KRX-DESC")
+        from concurrent.futures import ThreadPoolExecutor as _T
+        ex = _T(1)
+        d = ex.submit(fdr.StockListing, "KRX-DESC").result(timeout=90)
+        ex.shutdown(wait=False)
         d = d.rename(columns={"Code": "code", "Industry": "ind"})
         d["code"] = d["code"].astype(str).str.zfill(6)
         return d[["code", "ind"]].drop_duplicates("code")
@@ -156,12 +159,15 @@ def load_histories(codes, full_count=1300, inc_count=20, workers=12):
 
     t0 = time.time()
     out, fail = {}, 0
+    print(f"일봉 수집 시작 {len(codes)}종목 (캐시 {len(cache)})")
     with ThreadPoolExecutor(workers) as ex:
-        for code, h in ex.map(job, codes):
+        for n, (code, h) in enumerate(ex.map(job, codes), 1):
             if h is not None and len(h):
                 out[code] = h
             else:
                 fail += 1
+            if n % 500 == 0:
+                print(f"  일봉 {n}/{len(codes)} ({time.time() - t0:.0f}초)")
     print(f"일봉 {len(out)}종목 (실패 {fail}) {time.time() - t0:.0f}초")
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
     with gzip.open(CACHE, "wb") as f:
