@@ -32,10 +32,20 @@ def _industry():
     """KRX 업종(한국표준산업분류). 실패하거나 90초 넘게 걸리면 빈 표 (종목명으로 금융 판단)"""
     try:
         import FinanceDataReader as fdr
-        from concurrent.futures import ThreadPoolExecutor as _T
-        ex = _T(1)
-        d = ex.submit(fdr.StockListing, "KRX-DESC").result(timeout=90)
-        ex.shutdown(wait=False)
+        import threading
+        box = {}
+
+        def _run():
+            try:
+                box["d"] = fdr.StockListing("KRX-DESC")
+            except Exception as e:
+                box["e"] = e
+        th = threading.Thread(target=_run, daemon=True)   # 데몬: 멈춰도 프로그램 종료를 막지 않음
+        th.start()
+        th.join(90)
+        if "d" not in box:
+            raise RuntimeError(box.get("e") or "90초 초과")
+        d = box["d"]
         d = d.rename(columns={"Code": "code", "Industry": "ind"})
         d["code"] = d["code"].astype(str).str.zfill(6)
         return d[["code", "ind"]].drop_duplicates("code")

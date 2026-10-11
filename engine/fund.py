@@ -69,7 +69,7 @@ def _fetch(key, corps, year, reprt):
     params = {"crtfc_key": key, "corp_code": ",".join(corps), "bsns_year": str(year), "reprt_code": reprt}
     for attempt in range(4):
         try:
-            j = requests.get(f"{API}/fnlttMultiAcnt.json", params=params, timeout=30).json()
+            j = requests.get(f"{API}/fnlttMultiAcnt.json", params=params, timeout=90).json()
             st = j.get("status")
             if st == "000":
                 return j.get("list", [])
@@ -154,7 +154,7 @@ def load_raw(codes, key, refresh_hours=20):
 
     for n, k in enumerate(todo, 1):
         try:
-            with ThreadPoolExecutor(3) as ex:
+            with ThreadPoolExecutor(8) as ex:
                 res = list(ex.map(lambda b: _fetch(key, b, k[0], k[1]), batches))
         except Limit as e:
             print(f"DART 하루 요청 한도 초과 — 받은 데까지만 사용: {e}")
@@ -168,8 +168,7 @@ def load_raw(codes, key, refresh_hours=20):
         if not any(r is None for r in res):
             cache["at"][k] = now
         print(f"  DART {k[0]}/{k[1]} {len(cache['raw'][k])}종목 ({n}/{len(todo)}, {time.time() - t0:.0f}초)")
-        if n % 4 == 0:
-            save()                               # 중간 저장: 시간 초과로 끊겨도 다음 실행은 이어서
+        save()                               # 중간 저장: 시간 초과로 끊겨도 다음 실행은 이어서
     print(f"DART 수집 {time.time() - t0:.0f}초")
     save()
     return cache["raw"]
