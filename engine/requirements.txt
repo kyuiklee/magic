@@ -3,3 +3,4 @@ numpy
 requests
 finance-datareader
 pykrx
+yfinance
