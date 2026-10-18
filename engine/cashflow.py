@@ -148,9 +148,11 @@ def load(codes, key, corp, multi_raw, minutes=45, workers=12):
             v = d.get(k)
             old = v is not None and "ocf" in v and v.get("v", 1) < VER      # 예전 형식 → 다시 받음
             if v is None or old or ("miss" in v and recent and now - v["miss"] > 20 * 3600):
-                jobs.append((0 if (y, qn) in prio else 1, -(y * 4 + qn), k, rp))
+                # 순서: 0 오늘 기준 TTM용 → 1 아직 없는 과거분(최신→과거) → 2 예전 형식 다시 받기
+                jobs.append((0 if (y, qn) in prio else (2 if old else 1), -(y * 4 + qn), k, rp))
     jobs.sort()
-    print(f"현금흐름 남은 요청 {len(jobs)}건 (오늘 기준 FCF용 {sum(1 for j in jobs if j[0] == 0)}건), 최대 {minutes}분")
+    cnt = [sum(1 for j in jobs if j[0] == i) for i in range(3)]
+    print(f"현금흐름 남은 요청 {len(jobs)}건 (오늘 기준 {cnt[0]}, 과거분 {cnt[1]}, 다시 받기 {cnt[2]}), 최대 {minutes}분")
 
     def job(j):
         code, y, qn = j[2]
