@@ -1,0 +1,47 @@
+name: 접속 점검 (수동)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests yfinance
+      - name: 점검
+        run: |
+          cat > t.py <<'PY'
+          import requests, time
+          uas = ["magic-screener kyuiklee@users.noreply.github.com",
+                 "Kyuik Lee magic-screener admin@kyuiklee.github.io",
+                 "Mozilla/5.0 (compatible; magic-screener; +https://github.com/kyuiklee/magic)"]
+          urls = ["https://www.sec.gov/files/company_tickers_exchange.json",
+                  "https://www.sec.gov/files/company_tickers.json",
+                  "https://data.sec.gov/submissions/CIK0000320193.json",
+                  "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
+                  "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"]
+          for ua in uas:
+              for u in urls:
+                  try:
+                      r = requests.get(u, headers={"User-Agent": ua, "Accept-Encoding": "gzip, deflate"}, timeout=30)
+                      print(r.status_code, len(r.content), ua[:30], u, r.text[:120].replace("\n", " ") if r.status_code != 200 else "")
+                  except Exception as e:
+                      print("ERR", ua[:30], u, e)
+                  time.sleep(0.5)
+          import yfinance as yf
+          d = yf.download(["AAPL", "MSFT", "^GSPC"], period="5d", progress=False, group_by="ticker")
+          print("yfinance:", d.shape)
+          PY
+          python t.py 2>&1 | tee net.log
+      - name: 결과 저장
+        if: always()
+        run: |
+          mkdir out && cp net.log out/ || true
+          cd out && git init -q -b net-test && git config user.name gh && git config user.email gh@users.noreply.github.com
+          git add -A && git commit -q -m t && git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" net-test
