@@ -201,6 +201,10 @@ nav button[aria-current=page]{color:var(--ink)}
       <div class="ctl-row"><span>20일 평균 거래대금 하한</span></div>
       <div class="seg" role="group" aria-label="거래대금" id="fLiq">
       </div>
+      <div class="ctl-row"><span>경제적 해자</span><small>정량 추정 · 종목을 펼치면 근거</small></div>
+      <div class="seg" role="group" aria-label="경제적 해자" id="fMoat">
+        <button data-v="all">무관</button><button data-v="N">좁은 해자 이상</button><button data-v="W">넓은 해자만</button>
+      </div>
       <div class="ctl-row"><span>보유 종목 수</span><small>책 권장 20~30개</small></div>
       <div class="seg" role="group" aria-label="종목 수" id="fN">
         <button data-v="10">10</button><button data-v="20">20</button><button data-v="30">30</button><button data-v="50">50</button>
@@ -351,7 +355,7 @@ let RG=RC[REG], MKT=RG.mkt;
 const money=v=>RG.money(v);
 
 let D=null, ST=[], T=0;
-const S={mode:'M',mf:'A',sel:['PER'],mkt:'A',cap:1000,liq:5,N:20,H:12,fee:0.3,from:'all',...store.get('s',{})};
+const S={mode:'M',mf:'A',sel:['PER'],mkt:'A',cap:1000,liq:5,N:20,H:12,fee:0.3,from:'all',moat:'all',...store.get('s',{})};
 if(S.mode==='A'||S.mode==='B'){S.mf=S.mode;S.mode='M';}   // 예전 저장값 변환
 if(['PER','PBR','FCF'].includes(S.mode)){S.sel=[S.mode];S.mode='V';}
 if(!Array.isArray(S.sel)||!S.sel.length)S.sel=['PER'];
@@ -383,7 +387,8 @@ function pxHold(o,m){for(let k=m;k>=o.s0;k--){const v=pxAt(o,k);if(v!=null)retur
 const cacheRank=new Map();
 function ranked(m,s=S){
   const sel=VK.filter(k=>s.sel.includes(k));
-  const key=[m,s.mode,s.mf,sel.join('+'),s.mkt,s.cap,s.liq].join('|');
+  const moat=s.moat||'all';
+  const key=[m,s.mode,s.mf,sel.join('+'),s.mkt,s.cap,s.liq,moat].join('|');
   if(cacheRank.has(key))return cacheRank.get(key);
   const out=[];
   for(const o of ST){
@@ -391,6 +396,7 @@ function ranked(m,s=S){
     const p=pxAt(o,m), fi=o.fi[m]; if(p==null||fi<0)continue;
     const a=amtAt(o,m); if(a==null||a<s.liq)continue;
     const f0=o.f[fi], mcap=p*(f0.sh||o.shares)/(D.cap_div||1e8); if(mcap<s.cap)continue;
+    if(moat!=='all'){const g=gradeAt(o,m); if(!(g==='W'||(moat==='N'&&g==='N')))continue;}
     const f=f0, eq=f.eqp!=null?f.eqp:(f.ta!=null&&f.tl!=null?f.ta-f.tl:null), ni=f.nip!=null?f.nip:f.ni;
     let ey,roc,ev=null,ic=null,y=null;
     if(s.mode==='M'&&s.mf==='A'){
@@ -453,7 +459,7 @@ function drawMode(){
 }
 function drawSum(){
   const lb=(arr,v)=>(arr.find(x=>x[0]==v)||[0,v])[1];
-  $('#fSum').textContent=`${{A:'전체 시장',...RG.mkt}[S.mkt]} · 시총 ${lb(RG.caps,S.cap)}↑ · 거래대금 ${lb(RG.liqs,S.liq)}↑ · ${S.N}종목`;
+  $('#fSum').textContent=`${{A:'전체 시장',...RG.mkt}[S.mkt]} · 시총 ${lb(RG.caps,S.cap)}↑ · 거래대금 ${lb(RG.liqs,S.liq)}↑${S.moat&&S.moat!=='all'?(S.moat==='W'?' · 넓은 해자':' · 해자 있음'):''} · ${S.N}종목`;
 }
 
 /* ---------- 순위 ---------- */
@@ -522,24 +528,23 @@ const MOAT_SRC=[
   [/철도|Railroad|Pipeline|파이프|공항|항만|전기 ?통신업|Telecommunications Services|Cable|폐기물|Waste|Environmental|도시가스|Water Supply/i,'효율적 규모','시장이 작거나 규제로 경쟁자가 들어오기 어려움'],
   [/반도체|Semiconductor|소매|Retail|Department|Discount/i,'원가 우위·규모','규모나 공정으로 남보다 싸게 만들거나 팔 수 있음']];
 const CYC=/철강|금속|Steel|Metal|Mining|광업|화학|Chemical|해운|해상|Marine|Shipping|정유|석유|Oil|Gas|건설|Homebuild|Construction|자동차|Auto|반도체|Semiconductor|조선|선박|Aluminum|Paper|종이|펄프|시멘트|Cement|Building|기계|Machinery|항공|Airline/i;
-function yearly(o){
-  // 최근부터 1년 간격 TTM 재무 (같은 행 중복 제거)
+function yearlyAt(o,base){
+  // base 달 기준 1년 간격 TTM 재무 (그때 이미 공시된 것만, 같은 행 중복 제거)
   const out=[],seen=new Set();
-  for(let y=0;y<6;y++){const m=T-1-12*y; if(m<0)break; const fi=o.fi[m]; if(fi<0)continue;
+  for(let y=0;y<6;y++){const m=base-12*y; if(m<0)break; const fi=o.fi[m]; if(fi<0)continue;
     if(seen.has(fi))continue; seen.add(fi); out.push({...o.f[fi],m});}
   return out;}
-function analyze(o){
-  const Y=yearly(o), L=T-1, p=pxAt(o,L)??pxHold(o,L), f=o.f[o.fi[L]]||{};
-  const mcap=p&&o.fi[L]>=0?p*(f.sh||o.shares)/(D.cap_div||1e8):null;
+const avg=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:null;
+const sdv=a=>{if(a.length<2)return null;const m=avg(a);return Math.sqrt(avg(a.map(v=>(v-m)**2)));};
+// 원자재·해운·정유 등 가격이 이익을 좌우하는 업종: 높은 ROIC가 업황 덕일 수 있음 (모닝스타도 대부분 해자 없음)
+const COMMOD=/철강|금속|Steel|Metal|Mining|광업|해운|해상|Marine|Shipping|Tanker|정유|석유|Oil|Gas|Coal|석탄|Precious|Gold|Aluminum|Paper|펄프|시멘트|Cement|기초 화학|Basic Chemical|Fertilizer|비료|Agricultural Chemicals|Homebuilding|주거용 건물/i;
+function moatCore(Y,ind=''){
   const tax=REG==='KR'?0.22:0.21;
   const roic=Y.map(x=>x.ebit!=null&&x.ta!=null&&x.cl!=null&&x.ta-x.cl>0?x.ebit*(1-tax)/(x.ta-x.cl)*100:null);
   const R=roic.filter(v=>v!=null), n=R.length;
   const mar=Y.map(x=>x.rev>0&&x.ebit!=null?x.ebit/x.rev*100:null).filter(v=>v!=null);
   const cy=Y.filter(x=>x.fcf!=null&&x.ni!=null), sNi=cy.reduce((a,x)=>a+x.ni,0), sF=cy.reduce((a,x)=>a+x.fcf,0);
-  const avg=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:null;
-  const sd=a=>{if(a.length<2)return null;const m=avg(a);return Math.sqrt(avg(a.map(v=>(v-m)**2)));};
-  const rAvg=avg(R), rMin=n?Math.min(...R):null, mAvg=avg(mar), mCv=mar.length>=2&&mAvg>0?sd(mar)/mAvg:null, cAvg=cy.length&&sNi>0?sF/sNi:null;
-  const ind=o.ind||'';
+  const rAvg=avg(R), rMin=n?Math.min(...R):null, mAvg=avg(mar), mCv=mar.length>=2&&mAvg>0?sdv(mar)/mAvg:null, cAvg=cy.length&&sNi>0?sF/sNi:null;
   // 해자 등급 (정량 추정): 세후 ROIC가 자본비용(약 8%)을 얼마나 꾸준히 넘는지
   let grade='U', gTxt='판단 보류';
   if(n>=3){
@@ -547,6 +552,20 @@ function analyze(o){
     else if(rAvg>=10&&rMin>=6){grade='N';gTxt='좁은 해자 추정';}
     else {grade='X';gTxt='해자 없음 추정';}
   }
+  const commod=COMMOD.test(ind||'');
+  if(commod&&(grade==='W'||grade==='N')){                     // 5년 넘게 ROIC 10% 이상이면 좁은 해자까지만
+    const keep=n>=5&&rMin>=10; grade=keep?'N':'X'; gTxt=keep?'좁은 해자 추정':'해자 없음 추정';
+  }
+  return {roic,R,n,mar,mAvg,mCv,cy,cAvg,rAvg,rMin,grade,gTxt,commod};
+}
+const gradeCache=new Map();
+function gradeAt(o,m){const k=o.code+'|'+m;let g=gradeCache.get(k);if(g===undefined){g=moatCore(yearlyAt(o,m),(o.ind||'')+' '+o.name).grade;gradeCache.set(k,g);}return g;}
+function analyze(o){
+  const Y=yearlyAt(o,T-1), L=T-1, p=pxAt(o,L)??pxHold(o,L), f=o.f[o.fi[L]]||{};
+  const mcap=p&&o.fi[L]>=0?p*(f.sh||o.shares)/(D.cap_div||1e8):null;
+  const {roic,R,n,mar,mAvg,mCv,cy,cAvg,rAvg,rMin,grade,gTxt,commod}=moatCore(Y,(o.ind||'')+' '+o.name);
+  const sd=sdv;
+  const ind=o.ind||'';
   const trend=n>=3?(R[0]-R[n-1]>=3?'개선':(R[0]-R[n-1]<=-3?'약화':'안정')):null;
   const src=MOAT_SRC.filter(([re])=>re.test(ind)).map(([,a,b])=>({a,b}));
   const ck=[
@@ -554,6 +573,7 @@ function analyze(o){
     [mCv!=null&&mCv<=0.35, mar.length?`영업이익률 평균 ${mAvg.toFixed(1)}% · ${mCv!=null?(mCv<=0.2?'매우 안정':mCv<=0.35?'안정':'들쭉날쭉'):'1개 연도'}`:'영업이익률: 매출 데이터 없음'],
     [cAvg!=null&&cAvg>=0.8, cAvg!=null?`이익의 현금 전환 ${cAvg>2?'200% 넘음':cAvg<-1?'마이너스':Math.round(cAvg*100)+'%'} (최근 ${cy.length}년 FCF 합 ÷ 순이익 합)`:(cy.length?'현금 전환: 순이익 합이 적자':'현금 전환: 데이터 없음')],
     [trend==='개선'||trend==='안정', trend?`ROIC 추세 ${trend} (${R[n-1].toFixed(0)}% → ${R[0].toFixed(0)}%)`:'추세: 데이터 부족']];
+  if(commod) ck.push([false,'원자재·해운·정유처럼 가격이 이익을 좌우하는 업종 — 높은 ROIC가 업황 덕일 수 있어 5년 넘게 유지돼야 해자로 봄']);
   // 기업 유형
   const g=(k)=>{const v=Y.map(x=>x[k]);const a=v[0],b=v[v.length-1],yrs=v.length-1;return yrs>=2&&a>0&&b>0?(Math.pow(a/b,1/yrs)-1)*100:null;};
   const gr=g('rev')??g('ebit');
@@ -789,17 +809,17 @@ function drawBT(){
 }
 
 /* ---------- 내 전략 ---------- */
-const SK=['mode','mf','sel','mkt','cap','liq','N','H','fee','from'];
+const SK=['mode','mf','sel','mkt','cap','liq','N','H','fee','from','moat'];
 const PRESETS=[
   {id:'p_kr',preset:1,region:'KR',name:'국내 추천: 코스피 대형 저PER+저PBR',mode:'V',mf:'A',sel:['PER','PBR'],mkt:'K',cap:10000,liq:5,N:20,H:12,fee:0.3,from:'all'},
   {id:'p_us',preset:1,region:'US',name:'미국 추천: NYSE 저PER+저PBR',mode:'V',mf:'A',sel:['PER','PBR'],mkt:'K',cap:1000,liq:5,N:20,H:12,fee:0.3,from:'all'}];
 let STRATS=store.get('strats',null);
 if(!Array.isArray(STRATS)){STRATS=PRESETS.map(x=>({...x}));store.set('strats',STRATS);}
 const stSave=()=>store.set('strats',STRATS);
-function withS(st,fn){const bk={};SK.forEach(k=>{bk[k]=S[k];S[k]=Array.isArray(st[k])?[...st[k]]:st[k];});
+function withS(st,fn){const bk={};SK.forEach(k=>{bk[k]=S[k];S[k]=Array.isArray(st[k])?[...st[k]]:(st[k]??(k==='moat'?'all':S[k]));});
   try{return fn();}finally{SK.forEach(k=>S[k]=bk[k]);}}
 function descS(st){return withS(st,()=>{const lb=(arr,v)=>(arr.find(x=>x[0]==v)||[0,v])[1];
-  return `${stratName()} · ${{A:'전체 시장',...RG.mkt}[S.mkt]} · 시총 ${lb(RG.caps,S.cap)}↑ · 거래대금 ${lb(RG.liqs,S.liq)}↑ · ${S.N}종목 · 보유 ${hTxt(+S.H)}`;});}
+  return `${stratName()} · ${{A:'전체 시장',...RG.mkt}[S.mkt]} · 시총 ${lb(RG.caps,S.cap)}↑ · 거래대금 ${lb(RG.liqs,S.liq)}↑${S.moat&&S.moat!=='all'?(S.moat==='W'?' · 넓은 해자':' · 해자 있음'):''} · ${S.N}종목 · 보유 ${hTxt(+S.H)}`;});}
 function stStats(st){return withS(st,()=>{
   const L=T-1, picks=ranked(L).slice(0,+S.N), prev=new Set(T>1?ranked(L-1).slice(0,+S.N).map(r=>r.o.code):[]);
   const R=simulate(); let o={picks,prev};
@@ -840,8 +860,8 @@ function drawST(){
 }
 function syncSeg(id,v){$$(`#${id} button`).forEach(b=>b.setAttribute('aria-pressed',String(String(b.dataset.v)===String(v))));}
 function applyStrat(st){
-  SK.forEach(k=>S[k]=Array.isArray(st[k])?[...st[k]]:st[k]); S.rg=S.rg||{}; S.rg[REG]={cap:S.cap,liq:S.liq,mkt:S.mkt}; save();
-  setupRegionFilters(); syncSeg('fMf',S.mf); syncSeg('fN',S.N); syncSeg('bFee',S.fee); syncSeg('bFrom',S.from);
+  SK.forEach(k=>S[k]=Array.isArray(st[k])?[...st[k]]:(st[k]??(k==='moat'?'all':S[k]))); S.rg=S.rg||{}; S.rg[REG]={cap:S.cap,liq:S.liq,mkt:S.mkt}; save();
+  setupRegionFilters(); syncSeg('fMf',S.mf); syncSeg('fN',S.N); syncSeg('fMoat',S.moat); syncSeg('bFee',S.fee); syncSeg('bFrom',S.from);
   $('#bH').value=S.H; $('#bHv').textContent=hTxt(+S.H);
   redraw(); $('nav button[data-v="rank"]').click(); toast(`'${st.name}' 적용`);
 }
@@ -872,7 +892,7 @@ $$('#fMode button').forEach(b=>b.onclick=()=>{const v=b.dataset.v;
   else if(S.sel.includes(v)){if(S.sel.length>1)S.sel=S.sel.filter(x=>x!==v);}
   else S.sel=[...S.sel,v];
   save();redraw();});
-[['fMf','mf'],['fN','N']].forEach(([id,k])=>bindSeg(id,k,redraw));
+[['fMf','mf'],['fN','N'],['fMoat','moat']].forEach(([id,k])=>bindSeg(id,k,redraw));
 [['bFee','fee'],['bFrom','from']].forEach(([id,k])=>bindSeg(id,k,drawBT));
 const hTxt=h=>h%12===0?`${h/12}년`:(h>12?`${Math.floor(h/12)}년 ${h%12}개월`:`${h}개월`);
 {const el=$('#bH'),out=$('#bHv');el.value=S.H;out.textContent=hTxt(+S.H);let tm=null;
@@ -897,7 +917,7 @@ function setupRegionFilters(){
 function applyRegionSettings(){S.rg=S.rg||{};const g=S.rg[REG]||RG.def;
   S.cap=RG.caps.some(x=>x[0]==g.cap)?g.cap:RG.def.cap; S.liq=RG.liqs.some(x=>x[0]==g.liq)?g.liq:RG.def.liq; S.mkt=g.mkt||'A';}
 function showData(j){
-  D=j; ST=[]; cacheRank.clear(); byCode.m=null; prep(); loadPF(); pfOpen=null;
+  D=j; ST=[]; cacheRank.clear(); gradeCache.clear(); byCode.m=null; prep(); loadPF(); pfOpen=null;
   drawHeader();drawMode();drawSum();drawRank();btDirty=true;pfDirty=true;
   if($('#v-bt').classList.contains('on')){btDirty=false;drawBT();}
   if($('#v-pf').classList.contains('on'))drawPF();
