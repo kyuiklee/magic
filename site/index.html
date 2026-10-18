@@ -206,11 +206,11 @@ nav button[aria-current=page]{color:var(--ink)}
       <p class="note">DART 주요계정만으로는 현금과 차입금을 나눌 수 없어 기업가치에 부채 전체를 넣었습니다. 현금이 많은 회사는 실제보다 덜 싸게, 투하자본은 무형자산·투자자산까지 포함돼 자본수익률이 다소 낮게 나옵니다.</p>
       <h3>저PER · 저PBR · FCF 수익률</h3>
       <ul>
-        <li><b>저PER</b>: 시가총액 ÷ 순이익(최근 4분기 합). 이익 대비 싼 종목</li>
-        <li><b>저PBR</b>: 시가총액 ÷ 자본총계(최근 분기). 장부가치 대비 싼 종목. 적자 종목은 뺍니다</li>
+        <li><b>저PER</b>: 시가총액 ÷ 지배주주 순이익(최근 4분기 합). 이익 대비 싼 종목</li>
+        <li><b>저PBR</b>: 시가총액 ÷ 지배주주 자본(최근 분기). 장부가치 대비 싼 종목. 적자 종목은 뺍니다</li>
         <li><b>FCF 수익률</b>: (영업활동현금흐름 − 유형·무형자산 취득, 최근 4분기 합) ÷ 시가총액. 회사가 실제로 남기는 현금 대비 싼 종목. 회계 이익보다 꾸미기 어렵습니다</li>
       </ul>
-      <p class="note">자본총계·순이익은 비지배지분을 포함한 연결 기준입니다. 현금흐름표는 회사마다 따로 받아야 해서, 과거 FCF는 매일 실행 때마다 조금씩 채워집니다(최신 보고서부터). FCF 백테스트는 데이터가 60% 이상 채워진 달부터 시작합니다.</p>
+      <p class="note">PER·PBR은 지배주주 몫만 씁니다. 증권사나 계열사를 연결로 잡는 지주회사는 연결 순이익·자본 대부분이 다른 주주 몫이라, 연결 전체로 계산하면 PER 0.5배 같은 엉뚱한 값이 나옵니다. 지배주주 값이 아직 없는 과거 달은 연결 전체로 대신합니다. FCF는 연결 기준이라 지주회사는 다소 높게 나올 수 있습니다. 현금흐름표는 회사마다 따로 받아야 해서, 과거 FCF는 매일 실행 때마다 조금씩 채워집니다(최신 보고서부터). FCF 백테스트는 데이터가 60% 이상 채워진 달부터 시작합니다.</p>
       <h3>책이 권하는 운용</h3>
       <ol>
         <li>상위 20~30종목을 고릅니다.</li>
@@ -246,8 +246,8 @@ const S={mode:'M',mf:'A',mkt:'A',cap:1000,liq:5,N:20,H:12,fee:0.3,...store.get('
 if(S.mode==='A'||S.mode==='B'){S.mf=S.mode;S.mode='M';}   // 예전 저장값 변환
 const MODES={
   M:{t:'마법공식',note:'이익수익률(쌈)과 자본수익률(돈을 잘 벎) 순위를 더해 작은 순서대로 보여 줍니다.'},
-  PER:{t:'저PER',note:'시가총액 ÷ 순이익(최근 4분기)이 낮은 순서입니다. 적자 종목은 빠집니다.'},
-  PBR:{t:'저PBR',note:'시가총액 ÷ 자본총계가 낮은 순서입니다. 자본잠식·적자(최근 4분기 순이익) 종목은 빠집니다.'},
+  PER:{t:'저PER',note:'시가총액 ÷ 지배주주 순이익(최근 4분기)이 낮은 순서입니다. 적자 종목은 빠집니다.'},
+  PBR:{t:'저PBR',note:'시가총액 ÷ 지배주주 자본이 낮은 순서입니다. 자본잠식·적자(최근 4분기) 종목은 빠집니다.'},
   FCF:{t:'FCF 수익률',note:'잉여현금흐름(영업현금흐름 − 설비·무형자산 투자, 최근 4분기) ÷ 시가총액이 높은 순서입니다. FCF가 마이너스면 빠집니다.'}};
 const save=()=>store.set('s',S);
 
@@ -278,7 +278,7 @@ function ranked(m,s=S){
     const p=pxAt(o,m), fi=o.fi[m]; if(p==null||fi<0)continue;
     const a=amtAt(o,m); if(a==null||a<s.liq)continue;
     const mcap=p*o.shares/1e8; if(mcap<s.cap)continue;
-    const f=o.f[fi], eq=f.ta!=null&&f.tl!=null?f.ta-f.tl:null;
+    const f=o.f[fi], eq=f.eqp!=null?f.eqp:(f.ta!=null&&f.tl!=null?f.ta-f.tl:null), ni=f.nip!=null?f.nip:f.ni;
     let ey,roc,ev=null,ic=null,y=null;
     if(s.mode==='M'&&s.mf==='A'){
       if(f.ebit==null||f.ebit<=0||f.tl==null||f.ta==null||f.cl==null)continue;
@@ -288,13 +288,13 @@ function ranked(m,s=S){
       if(f.ni==null||f.ni<=0||f.ta==null||f.ta<=0)continue;
       ey=f.ni/mcap; roc=f.ni/f.ta;
     }else if(s.mode==='PER'){
-      if(f.ni==null||f.ni<=0)continue; y=f.ni/mcap;
+      if(ni==null||ni<=0)continue; y=ni/mcap;
     }else if(s.mode==='PBR'){
-      if(eq==null||eq<=0||f.ni==null||f.ni<=0)continue; y=eq/mcap;
+      if(eq==null||eq<=0||ni==null||ni<=0)continue; y=eq/mcap;
     }else{
       if(f.fcf==null||f.fcf<=0)continue; y=f.fcf/mcap;
     }
-    out.push({o,f,p,mcap,ev,ic,ey,roc,y,eq,amt:a});
+    out.push({o,f,p,mcap,ev,ic,ey,roc,y,eq,ni,amt:a});
   }
   if(s.mode==='M'){
     out.sort((x,y)=>y.ey-x.ey).forEach((r,i)=>r.r1=i+1);
@@ -336,14 +336,14 @@ function drawRank(){
   if(!arr.length){$('#picks').innerHTML=`<div class="empty">${D.fund?'조건에 맞는 종목이 없습니다. 시가총액·거래대금 하한을 낮춰 보세요.':'재무 데이터가 아직 없습니다.'}</div>`;$('#guide').innerHTML='';return;}
   const M=S.mode==='M', A=M&&S.mf==='A', l1=A?'이익수익률':'1/PER', l2=A?'자본수익률':'ROA';
   const ratio=(v,d=1)=>v!=null&&isFinite(v)&&v>0?v.toFixed(d)+'배':'-';
-  const side=r=>{const f=r.f,roe=r.eq>0&&f.ni!=null?f.ni/r.eq*100:null,per1=f.ni>0?r.mcap/f.ni:null;
+  const side=r=>{const f=r.f,roe=r.eq>0&&r.ni!=null?r.ni/r.eq*100:null,per1=r.ni>0?r.mcap/r.ni:null;
     if(M)return `<span>${l1}</span><b>${(r.ey*100).toFixed(1)}%</b><span>${l2}</span><b>${(r.roc*100).toFixed(0)}%</b>`;
     if(S.mode==='PER')return `<span>PER</span><b>${ratio(per1)}</b><span>ROE</span><b>${roe!=null?roe.toFixed(0)+'%':'-'}</b>`;
     if(S.mode==='PBR')return `<span>PBR</span><b>${ratio(r.mcap/r.eq,2)}</b><span>ROE</span><b>${roe!=null?roe.toFixed(0)+'%':'-'}</b>`;
     return `<span>FCF 수익률</span><b>${(r.y*100).toFixed(1)}%</b><span>PER</span><b>${ratio(per1)}</b>`;};
   const money=+store.get('money',0)||0, per=money?money/arr.length:0;
   $('#picks').innerHTML=arr.map((r,i)=>{const o=r.o,f=r.f,isNew=prev.size&&!prev.has(o.code);
-    const per1=f.ni>0?r.mcap/f.ni:null;
+    const per1=r.ni>0?r.mcap/r.ni:null;
     return `<div class="item"><button aria-expanded="false">
       <span class="rk">${i+1}</span>
       <span><div class="nm">${esc(o.name)}<span class="mk ${o.mkt}">${MKT[o.mkt]}</span>${isNew?'<span class="new">NEW</span>':''}</div>
@@ -351,13 +351,13 @@ function drawRank(){
       <span class="sc">${side(r)}</span>
     </button><div class="detail"><dl>
       <dt>순위</dt><dd>${M?`${l1} ${r.r1}위 + ${l2} ${r.r2}위 = ${r.r1+r.r2}`:`${r.r1}위`} <span class="mute">(${all.length}종목 중)</span></dd>
-      <dt>PER · PBR</dt><dd>${ratio(f.ni>0?r.mcap/f.ni:null)} · ${ratio(r.eq>0?r.mcap/r.eq:null,2)}</dd>
+      <dt>PER · PBR</dt><dd>${ratio(r.ni>0?r.mcap/r.ni:null)} · ${ratio(r.eq>0?r.mcap/r.eq:null,2)} <span class="mute">${f.nip!=null?'지배주주 기준':'연결 전체'}</span></dd>
       <dt>FCF 수익률</dt><dd>${f.fcf!=null?`<span class="${cls(f.fcf)}">${(f.fcf/r.mcap*100).toFixed(1)}%</span> <span class="mute">FCF ${eok(f.fcf)}</span>`:'<span class="mute">데이터 없음</span>'}</dd>
-      <dt>ROE</dt><dd>${r.eq>0&&f.ni!=null?(f.ni/r.eq*100).toFixed(1)+'%':'-'}</dd>
+      <dt>ROE</dt><dd>${r.eq>0&&r.ni!=null?(r.ni/r.eq*100).toFixed(1)+'%':'-'}</dd>
       <dt>영업이익</dt><dd>${eok(f.ebit)} <span class="mute">최근 4분기</span></dd>
-      <dt>순이익</dt><dd>${eok(f.ni)} <span class="mute">최근 4분기</span></dd>
+      <dt>순이익</dt><dd>${eok(f.ni)} <span class="mute">최근 4분기${f.nip!=null&&Math.abs(f.nip-f.ni)>Math.abs(f.ni)*0.05?` · 지배주주 ${eok(f.nip)}`:''}</span></dd>
       ${A?`<dt>기업가치</dt><dd>${eok(r.ev)} <span class="mute">시총+부채</span></dd><dt>투하자본</dt><dd>${eok(r.ic)} <span class="mute">자산−유동부채</span></dd>`
-         :`<dt>자본총계</dt><dd>${eok(r.eq)}</dd>`}
+         :`<dt>자본</dt><dd>${eok(r.eq)} <span class="mute">${f.eqp!=null?'지배주주':'자본총계'}</span></dd>`}
       <dt>부채비율</dt><dd>${f.ta&&f.tl!=null&&f.ta-f.tl>0?Math.round(f.tl/(f.ta-f.tl)*100)+'%':'-'}</dd>
       <dt>기준 분기</dt><dd>${o.ql||'-'}</dd>
       <dt>거래대금</dt><dd>${fmt(Math.round(r.amt))}억 <span class="mute">20일 평균</span></dd>

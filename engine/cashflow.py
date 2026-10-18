@@ -1,4 +1,4 @@
-"""OpenDART 단일회사 전체 재무제표(fnlttSinglAcntAll)에서 현금흐름표만 뽑아 FCF 계산
+"""OpenDART 단일회사 전체 재무제표(fnlttSinglAcntAll)에서 FCF와 지배주주 지표 계산
 
 FCF = 영업활동현금흐름 − (유형자산 취득 + 무형자산 취득)
 - 현금흐름표는 분기·반기 보고서도 연초부터 누적 값이라, 최근 4분기 합(TTM)은
@@ -6,6 +6,8 @@ FCF = 영업활동현금흐름 − (유형자산 취득 + 무형자산 취득)
 - 회사·보고서마다 요청 1번이 필요해 전체를 한 번에 받을 수 없음 (5년치 약 6만 번, 하루 한도 2만 번)
   → 오늘 TTM에 필요한 보고서부터 받고, 나머지는 실행 때마다 정해진 시간만큼 최신→과거 순으로 채움
 - 주요계정 API에 그 보고서가 있는 종목만 요청 (보고서를 안 낸 종목에 헛요청 안 함)
+- 같은 응답에서 지배주주 순이익(누적)·지배주주 자본도 뽑음 → PER·PBR을 비지배지분 없이 계산
+  (증권사·계열사를 연결로 잡는 지주회사는 연결 순이익·자본이 실제 주주 몫보다 훨씬 큼)
 """
 import os, time, gzip, pickle
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +24,11 @@ Q_END = {1: (3, 31), 2: (6, 30), 3: (9, 30), 4: (12, 31)}
 OCF_ID = ("ifrs-full_CashFlowsFromUsedInOperatingActivities", "ifrs_CashFlowsFromUsedInOperatingActivities")
 PPE_ID = ("ifrs-full_PurchaseOfPropertyPlantAndEquipment", "ifrs_PurchaseOfPropertyPlantAndEquipment")
 INT_ID = ("ifrs-full_PurchaseOfIntangibleAssets", "ifrs_PurchaseOfIntangibleAssets")
+NIP_ID = ("ifrs-full_ProfitLossAttributableToOwnersOfParent", "ifrs_ProfitLossAttributableToOwnersOfParent")
+EQP_ID = ("ifrs-full_EquityAttributableToOwnersOfParent", "ifrs_EquityAttributableToOwnersOfParent")
+NI_ID = ("ifrs-full_ProfitLoss", "ifrs_ProfitLoss")
+EQ_ID = ("ifrs-full_Equity", "ifrs_Equity")
+VER = 2                                   # 2: 지배주주 순이익·자본 포함
 
 
 class Limit(Exception):
@@ -35,14 +42,32 @@ def _num(s):
         return np.nan
 
 
-def _pick(rows):
-    """현금흐름표 행들 → {ocf, capex} (원). 계정 ID 우선, 없으면 계정명"""
-    ocf = ppe = itg = np.nan
+def _pick(rows, qn=4):
+    """전체 재무제표 행들 → {ocf, capex, nip, eqp} (원). 계정 ID 우선, 없으면 계정명
+    nip = 지배주주 순이익 (연초부터 누적), eqp = 지배주주 자본. 별도재무제표면 순이익·자본 전체"""
+    ocf = ppe = itg = nip = eqp = ni = eq = np.nan
     for r in rows:
-        if r.get("sj_div") != "CF":
-            continue
+        sj = r.get("sj_div")
         aid = str(r.get("account_id", "")).strip()
         nm = str(r.get("account_nm", "")).replace(" ", "")
+        if sj in ("IS", "CIS"):
+            v = _num(r.get("thstrm_add_amount")) if qn in (2, 3) else _num(r.get("thstrm_amount"))
+            if qn in (2, 3) and not np.isfinite(v):
+                continue
+            if not np.isfinite(nip) and (aid in NIP_ID or nm.startswith(("지배기업의소유주", "지배기업소유주", "지배주주"))):
+                nip = v
+            elif not np.isfinite(ni) and (aid in NI_ID or nm.startswith(("당기순이익", "분기순이익", "반기순이익"))):
+                ni = v
+            continue
+        if sj == "BS":
+            v = _num(r.get("thstrm_amount"))
+            if not np.isfinite(eqp) and (aid in EQP_ID or nm.startswith(("지배기업의소유주", "지배기업소유주", "지배주주"))):
+                eqp = v
+            elif not np.isfinite(eq) and (aid in EQ_ID or nm == "자본총계"):
+                eq = v
+            continue
+        if sj != "CF":
+            continue
         v = _num(r.get("thstrm_amount"))
         if not np.isfinite(v):
             continue
@@ -53,7 +78,8 @@ def _pick(rows):
         elif not np.isfinite(itg) and (aid in INT_ID or nm.startswith("무형자산의취득")):
             itg = abs(v)
     capex = (0 if not np.isfinite(ppe) else ppe) + (0 if not np.isfinite(itg) else itg)
-    return {"ocf": ocf, "capex": capex}
+    return {"ocf": ocf, "capex": capex, "v": VER,
+            "nip": nip if np.isfinite(nip) else ni, "eqp": eqp if np.isfinite(eqp) else eq}
 
 
 def _get(key, corp, y, rp, fs):
@@ -64,7 +90,7 @@ def _get(key, corp, y, rp, fs):
             st = j.get("status")
             if st == "000":
                 rows = j.get("list", [])
-                rec = _pick(rows)
+                rec = _pick(rows, QN[rp])
                 rec["rcept"] = str(rows[0].get("rcept_no", ""))[:8] if rows else ""
                 return "ok", rec
             if st == "013":
@@ -80,7 +106,7 @@ def _get(key, corp, y, rp, fs):
 
 
 def load(codes, key, corp, multi_raw, minutes=45, workers=12):
-    """{종목코드: {(연도, 분기번호): FCF 누적(원)}}"""
+    """{종목코드: {(연도, 분기번호): {fcf 누적, nip 누적, eqp 시점}}} (원)"""
     cache = {"d": {}, "fs": {}, "v": 1}
     if os.path.exists(CACHE):
         try:
@@ -110,7 +136,8 @@ def load(codes, key, corp, multi_raw, minutes=45, workers=12):
                 continue
             k = (code, y, qn)
             v = d.get(k)
-            if v is None or ("miss" in v and recent and now - v["miss"] > 20 * 3600):
+            old = v is not None and "ocf" in v and v.get("v", 1) < VER      # 예전 형식 → 다시 받음
+            if v is None or old or ("miss" in v and recent and now - v["miss"] > 20 * 3600):
                 jobs.append((0 if (y, qn) in prio else 1, -(y * 4 + qn), k, rp))
     jobs.sort()
     print(f"현금흐름 남은 요청 {len(jobs)}건 (오늘 기준 FCF용 {sum(1 for j in jobs if j[0] == 0)}건), 최대 {minutes}분")
@@ -151,10 +178,14 @@ def load(codes, key, corp, multi_raw, minutes=45, workers=12):
     except Limit as e:
         print(f"  DART 하루 요청 한도 초과 — 받은 데까지만 사용: {e}")
     save()
-    print(f"현금흐름 이번 실행 {done}건, 누적 {sum(1 for v in d.values() if 'ocf' in v)}건 ({time.time() - t0:.0f}초)")
+    n2 = sum(1 for v in d.values() if v.get("v", 1) >= VER)
+    print(f"현금흐름 이번 실행 {done}건, 누적 {sum(1 for v in d.values() if 'ocf' in v)}건 (지배주주 포함 {n2}건) ({time.time() - t0:.0f}초)")
 
     out = {}
     for (code, y, qn), v in d.items():
-        if "ocf" in v and np.isfinite(v["ocf"]):
-            out.setdefault(code, {})[(y, qn)] = v["ocf"] - v["capex"]
+        if "ocf" not in v:
+            continue
+        out.setdefault(code, {})[(y, qn)] = {
+            "fcf": v["ocf"] - v["capex"] if np.isfinite(v["ocf"]) else np.nan,
+            "nip": v.get("nip", np.nan), "eqp": v.get("eqp", np.nan)}
     return out

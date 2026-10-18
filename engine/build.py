@@ -125,7 +125,7 @@ def main():
                 continue
             prev = r
             row = f.iloc[r]
-            fl.append([mi] + [rnd(row[k], 0) for k in ("ebit", "ni", "ta", "tl", "ca", "cl", "fcf")])
+            fl.append([mi] + [rnd(row[k], 0) for k in ("ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp")])
         if not fl:
             n_nof += 1
             continue
@@ -141,8 +141,8 @@ def main():
         "months": [f"{d:%Y-%m-%d}" for d in months],
         "idx": ix,
         "fields": ["code", "name", "mkt", "shares", "s0", "px", "amt20", "f", "ql"],
-        "f_fields": ["mi", "ebit", "ni", "ta", "tl", "ca", "cl", "fcf"],
-        "note": "px·amt20은 months[s0]부터. f는 [월 번호, 영업이익TTM, 순이익TTM, 자산총계, 부채총계, 유동자산, 유동부채, FCF TTM] (억 원), "
+        "f_fields": ["mi", "ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp"],
+        "note": "px·amt20은 months[s0]부터. f는 [월 번호, 영업이익TTM, 순이익TTM, 자산총계, 부채총계, 유동자산, 유동부채, FCF TTM, 지배주주 순이익 TTM, 지배주주 자본] (억 원), "
                 "그 월말부터 다음 항목 전까지 적용. 금융·유틸리티 제외",
         "stocks": stocks,
     }

@@ -178,19 +178,19 @@ def load_raw(codes, key, refresh_hours=20):
     return cache["raw"]
 
 
-def _fcf_ttm(cf, y, qn):
-    """현금흐름표 누적 값 → 최근 4분기 FCF (원)"""
+def _cum_ttm(cf, y, qn, k):
+    """연초부터 누적 값 → 최근 4분기 합 (원). 직전 연간 + 올해 누적 − 작년 같은 기간 누적"""
     if not cf:
         return np.nan
+    g = lambda yy, qq: cf.get((yy, qq), {}).get(k, np.nan)
     if qn == 4:
-        return cf.get((y, 4), np.nan)
-    a, b, c = cf.get((y - 1, 4)), cf.get((y, qn)), cf.get((y - 1, qn))
-    return a + b - c if None not in (a, b, c) else np.nan
+        return g(y, 4)
+    return g(y - 1, 4) + g(y, qn) - g(y - 1, qn)
 
 
 def series(raw, code, cf=None):
     """종목 하나의 지표를 공시일(다음 날) 기준 시계열로.
-    열: ebit, ni, fcf (최근 4분기 합), ta, tl, ca, cl, eq (억 원), ql (기준 분기 '26.2Q')"""
+    열: ebit, ni, fcf, nip(지배주주 순이익) (최근 4분기 합), ta, tl, ca, cl, eq, eqp(지배주주 자본) (억 원), ql"""
     Q = {}
     years = sorted({y for y, _ in raw})
     for y in years:
@@ -228,8 +228,12 @@ def series(raw, code, cf=None):
         for k in STOCK:
             v = Q[q][k]
             r[k] = v / 1e8 if np.isfinite(v) else np.nan
-        v = _fcf_ttm(cf, q // 4, q % 4 + 1)
-        r["fcf"] = v / 1e8 if np.isfinite(v) else np.nan
+        y, qn = q // 4, q % 4 + 1
+        for k in ("fcf", "nip"):
+            v = _cum_ttm(cf, y, qn, k)
+            r[k] = v / 1e8 if np.isfinite(v) else np.nan
+        v = (cf or {}).get((y, qn), {}).get("eqp", np.nan)
+        r["eqp"] = v / 1e8 if np.isfinite(v) else np.nan
         rows.append(r)
     if not rows:
         return None
