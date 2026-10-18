@@ -183,10 +183,11 @@ nav button[aria-current=page]{color:var(--ink)}
 
   <!-- 공통 조건 -->
   <div class="ctl" id="filters">
-    <div class="seg" role="group" aria-label="스크리닝 방법" id="fMode">
-      <button data-v="M">마법공식</button><button data-v="PER">저PER</button><button data-v="PBR">저PBR</button><button data-v="FCF">FCF 수익률</button>
+    <div id="fMode" role="group" aria-label="스크리닝 방법">
+      <div class="seg"><button data-v="M">마법공식</button><button data-v="PER">저PER</button><button data-v="PBR">저PBR</button><button data-v="FCF">FCF 수익률</button></div>
+      <div class="seg" style="margin-top:6px"><button data-v="ROE">고ROE</button><button data-v="ROA">고ROA</button><button data-v="DIV">고배당</button></div>
     </div>
-    <p class="note" style="margin:6px 2px 0">저PER·저PBR·FCF는 여러 개를 함께 눌러 조합할 수 있습니다 (순위 합산).</p>
+    <p class="note" style="margin:6px 2px 0">마법공식 외 지표는 여러 개를 함께 눌러 조합할 수 있습니다 (순위 합산).</p>
     <div class="seg" role="group" aria-label="마법공식 계산" id="fMf" style="margin-top:8px">
       <button data-v="A">원형 (영업이익)</button><button data-v="B">간편 (PER·ROA)</button>
     </div>
@@ -297,6 +298,8 @@ nav button[aria-current=page]{color:var(--ink)}
         <li><b>저PBR</b>: 시가총액 ÷ 지배주주 자본(최근 분기). 장부가치 대비 싼 종목. 적자 종목은 뺍니다</li>
         <li><b>FCF 수익률</b>: (영업활동현금흐름 − 유형·무형자산 취득, 최근 4분기 합) ÷ 시가총액. 회사가 실제로 남기는 현금 대비 싼 종목. 회계 이익보다 꾸미기 어렵습니다</li>
       </ul>
+      <ul><li><b>고ROE</b>: 지배주주 순이익 ÷ 지배주주 자본 · <b>고ROA</b>: 지배주주 순이익 ÷ 자산총계 (최근 4분기)</li>
+        <li><b>고배당</b>: 예상 배당수익률 = 직전 연도 주당배당금 ÷ 현재 주가. 국내는 DART 사업보고서의 '배당에 관한 사항'(보통주), 미국은 최근 4분기 배당금 지급액 ÷ 발행주식수</li></ul>
       <p><b>조합</b>: 저PER·저PBR·FCF를 여러 개 함께 고르면 지표마다 순위를 매겨 더한 합이 작은 순서로 보여 줍니다(마법공식과 같은 방식). 고른 지표가 모두 계산되는 종목만 들어갑니다.</p>
       <p class="note">PER·PBR은 지배주주 몫만 씁니다. 증권사나 계열사를 연결로 잡는 지주회사는 연결 순이익·자본 대부분이 다른 주주 몫이라, 연결 전체로 계산하면 PER 0.5배 같은 엉뚱한 값이 나옵니다. 지배주주 값이 아직 없는 과거 달은 연결 전체로 대신합니다. FCF는 연결 기준이라 지주회사는 다소 높게 나올 수 있습니다. 현금흐름표는 회사마다 따로 받아야 해서, 과거 FCF는 매일 실행 때마다 조금씩 채워집니다(최신 보고서부터). FCF 백테스트는 데이터가 60% 이상 채워진 달부터 시작합니다.</p>
       <h3>미국 시장</h3>
@@ -359,12 +362,15 @@ const S={mode:'M',mf:'A',sel:['PER'],mkt:'A',cap:1000,liq:5,N:20,H:12,fee:0.3,fr
 if(S.mode==='A'||S.mode==='B'){S.mf=S.mode;S.mode='M';}   // 예전 저장값 변환
 if(['PER','PBR','FCF'].includes(S.mode)){S.sel=[S.mode];S.mode='V';}
 if(!Array.isArray(S.sel)||!S.sel.length)S.sel=['PER'];
-const VK=['PER','PBR','FCF'], VL={PER:'PER',PBR:'PBR',FCF:'FCF'};
+const VK=['PER','PBR','FCF','ROE','ROA','DIV'], VL={PER:'PER',PBR:'PBR',FCF:'FCF',ROE:'ROE',ROA:'ROA',DIV:'배당'};
 const MODES={
   M:{t:'마법공식',note:'이익수익률(쌈)과 자본수익률(돈을 잘 벎) 순위를 더해 작은 순서대로 보여 줍니다.'},
   PER:{t:'저PER',note:'시가총액 ÷ 지배주주 순이익(최근 4분기)이 낮은 순서입니다. 적자 종목은 빠집니다.'},
   PBR:{t:'저PBR',note:'시가총액 ÷ 지배주주 자본이 낮은 순서입니다. 자본잠식·적자(최근 4분기) 종목은 빠집니다.'},
-  FCF:{t:'FCF 수익률',note:'잉여현금흐름(영업현금흐름 − 설비·무형자산 투자, 최근 4분기) ÷ 시가총액이 높은 순서입니다. FCF가 마이너스면 빠집니다.'}};
+  FCF:{t:'FCF 수익률',note:'잉여현금흐름(영업현금흐름 − 설비·무형자산 투자, 최근 4분기) ÷ 시가총액이 높은 순서입니다. FCF가 마이너스면 빠집니다.'},
+  ROE:{t:'고ROE',note:'지배주주 순이익(최근 4분기) ÷ 지배주주 자본이 높은 순서입니다. 적자·자본잠식은 빠집니다. 빚이 많아도 높게 나오니 부채비율을 함께 보세요.'},
+  ROA:{t:'고ROA',note:'지배주주 순이익(최근 4분기) ÷ 자산총계가 높은 순서입니다. 적자는 빠집니다.'},
+  DIV:{t:'고배당',note:'예상 배당수익률 = 직전 연도 주당배당금 ÷ 현재 주가 (배당이 유지된다고 가정). 높은 순서이고 무배당은 빠집니다.'}};
 const save=()=>store.set('s',S);
 
 /* ---------- 데이터 ---------- */
@@ -376,7 +382,9 @@ function prep(){
     // 월별 재무 행 번호 (없으면 -1)
     const fi=new Int16Array(T).fill(-1);let j=-1;
     for(let m=0;m<T;m++){while(j+1<o.f.length&&o.f[j+1].mi<=m)j++;fi[m]=j;}
-    o.fi=fi;return o;});
+    o.fi=fi;
+    const dv=new Float64Array(T).fill(NaN);if(o.dv){let k=-1;for(let m=0;m<T;m++){while(k+1<o.dv.length&&o.dv[k+1][0]<=m)k++;if(k>=0)dv[m]=o.dv[k][1];}}
+    o.dvm=dv;return o;});
 }
 const pxAt=(o,m)=>m<o.s0?null:o.px[m-o.s0];
 const amtAt=(o,m)=>m<o.s0?null:o.amt20[m-o.s0];
@@ -412,7 +420,10 @@ function ranked(m,s=S){
       for(const k of sel){
         if(k==='PER'){if(ni==null||ni<=0){ok=false;break;} y.PER=ni/mcap;}
         else if(k==='PBR'){if(eq==null||eq<=0||ni==null||ni<=0){ok=false;break;} y.PBR=eq/mcap;}
-        else {if(f.fcf==null||f.fcf<=0){ok=false;break;} y.FCF=f.fcf/mcap;}
+        else if(k==='FCF'){if(f.fcf==null||f.fcf<=0){ok=false;break;} y.FCF=f.fcf/mcap;}
+        else if(k==='ROE'){if(eq==null||eq<=0||ni==null||ni<=0){ok=false;break;} y.ROE=ni/eq;}
+        else if(k==='ROA'){if(f.ta==null||f.ta<=0||ni==null||ni<=0){ok=false;break;} y.ROA=ni/f.ta;}
+        else {const d=o.dvm[m]; if(!(d>0)){ok=false;break;} y.DIV=d/p;}
       }
       if(!ok)continue;
     }
@@ -447,12 +458,16 @@ function fcfCover(m){let a=0,b=0;for(const o of ST){const fi=o.fi[m];if(fi<0||px
 const selV=()=>VK.filter(k=>S.sel.includes(k));
 const stratName=()=>S.mode==='M'?`마법공식${S.mf==='B'?'(간편)':''}`:selV().map(k=>MODES[k].t).join('+');
 const useFCF=()=>S.mode==='V'&&S.sel.includes('FCF');
+const useDIV=()=>S.mode==='V'&&S.sel.includes('DIV');
+function divCover(m){let a=0,b=0;for(const o of ST){if(o.fi[m]<0||pxAt(o,m)==null)continue;a++;if(!isNaN(o.dvm[m]))b++;}return [b,a];}
 function drawMode(){
   $('#fMf').style.display=S.mode==='M'?'':'none';
   $$('#fMode button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v==='M'?S.mode==='M':S.mode==='V'&&S.sel.includes(b.dataset.v))));
   const sv=selV();
   let t=S.mode==='M'?MODES.M.note:(sv.length===1?MODES[sv[0]].note:
-    `${sv.map(k=>MODES[k].t).join(' + ')} 조합: 지표마다 순위를 매겨 더한 합이 작은 순서입니다. 고른 지표가 모두 계산되는 종목만 들어갑니다 (적자·FCF 마이너스 제외).`);
+    `${sv.map(k=>MODES[k].t).join(' + ')} 조합: 지표마다 순위를 매겨 더한 합이 작은 순서입니다. 고른 지표가 모두 계산되는 종목만 들어갑니다 (적자·FCF 마이너스·무배당 제외).`);
+  if(useDIV()&&D){const [b,a]=divCover(T-1);
+    t+=` 배당 데이터 ${fmt(b)}/${fmt(a)}종목.`+(b<a*0.8?' 매일 실행 때마다 더 채워집니다.':'');}
   if(useFCF()&&D){const [b,a]=fcfCover(T-1);
     t+=` 현금흐름 데이터 ${fmt(b)}/${fmt(a)}종목.`+(b<a*0.8?' 매일 실행 때마다 더 채워집니다.':'');}
   $('#modeNote').textContent=t;
@@ -472,9 +487,12 @@ function drawRank(){
   const side=r=>{const f=r.f,roe=r.eq>0&&r.ni!=null?r.ni/r.eq*100:null,per1=r.ni>0?r.mcap/r.ni:null;
     if(M)return `<span>${l1}</span><b>${(r.ey*100).toFixed(1)}%</b><span>${l2}</span><b>${(r.roc*100).toFixed(0)}%</b>`;
     const sv=selV(), cell={PER:()=>`<span>PER</span><b>${ratio(per1)}</b>`,PBR:()=>`<span>PBR</span><b>${ratio(r.mcap/r.eq,2)}</b>`,
-      FCF:()=>`<span>FCF 수익률</span><b>${(r.f.fcf/r.mcap*100).toFixed(1)}%</b>`};
+      FCF:()=>`<span>FCF 수익률</span><b>${(r.f.fcf/r.mcap*100).toFixed(1)}%</b>`,
+      ROE:()=>`<span>ROE</span><b>${roe!=null?roe.toFixed(0)+'%':'-'}</b>`,
+      ROA:()=>`<span>ROA</span><b>${r.f.ta>0&&r.ni!=null?(r.ni/r.f.ta*100).toFixed(1)+'%':'-'}</b>`,
+      DIV:()=>`<span>배당수익률</span><b>${r.o.dvm[T-1]>0?(r.o.dvm[T-1]/r.p*100).toFixed(1)+'%':'-'}</b>`};
     let h=sv.map(k=>cell[k]()).join('');
-    if(sv.length===1)h+=sv[0]==='FCF'?`<span>PER</span><b>${ratio(per1)}</b>`:`<span>ROE</span><b>${roe!=null?roe.toFixed(0)+'%':'-'}</b>`;
+    if(sv.length===1)h+=({FCF:`<span>PER</span><b>${ratio(per1)}</b>`,ROE:`<span>PBR</span><b>${ratio(r.eq>0?r.mcap/r.eq:null,2)}</b>`,ROA:`<span>ROE</span><b>${roe!=null?roe.toFixed(0)+'%':'-'}</b>`,DIV:`<span>PER</span><b>${ratio(per1)}</b>`}[sv[0]]??`<span>ROE</span><b>${roe!=null?roe.toFixed(0)+'%':'-'}</b>`);
     return h;};
   const budget=+store.get(RG.money_key,0)||0, per=budget?budget/arr.length:0;
   $('#picks').innerHTML=arr.map((r,i)=>{const o=r.o,f=r.f,isNew=prev.size&&!prev.has(o.code);
@@ -488,7 +506,8 @@ function drawRank(){
       <dt>순위</dt><dd>${M?`${l1} ${r.r1}위 + ${l2} ${r.r2}위 = ${r.r1+r.r2}`:(selV().length>1?selV().map(k=>`${VL[k]} ${r.rk[k]}위`).join(' + ')+` = ${r.tot}`:`${r.tot}위`)} <span class="mute">(${all.length}종목 중)</span></dd>
       <dt>PER · PBR</dt><dd>${ratio(r.ni>0?r.mcap/r.ni:null)} · ${ratio(r.eq>0?r.mcap/r.eq:null,2)} <span class="mute">${f.nip!=null?'지배주주 기준':'연결 전체'}</span></dd>
       <dt>FCF 수익률</dt><dd>${f.fcf!=null?`<span class="${cls(f.fcf)}">${(f.fcf/r.mcap*100).toFixed(1)}%</span> <span class="mute">FCF ${money(f.fcf)}</span>`:'<span class="mute">데이터 없음</span>'}</dd>
-      <dt>ROE</dt><dd>${r.eq>0&&r.ni!=null?(r.ni/r.eq*100).toFixed(1)+'%':'-'}</dd>
+      <dt>ROE · ROA</dt><dd>${r.eq>0&&r.ni!=null?(r.ni/r.eq*100).toFixed(1)+'%':'-'} · ${f.ta>0&&r.ni!=null?(r.ni/f.ta*100).toFixed(1)+'%':'-'}</dd>
+      <dt>예상 배당수익률</dt><dd>${o.dvm[T-1]>0?`${(o.dvm[T-1]/r.p*100).toFixed(2)}% <span class="mute">주당 ${RG.price(o.dvm[T-1])} · 직전 연도 유지 가정</span>`:(o.dvm[T-1]===0?'<span class="mute">무배당</span>':'<span class="mute">데이터 없음</span>')}</dd>
       <dt>영업이익</dt><dd>${money(f.ebit)} <span class="mute">최근 4분기</span></dd>
       <dt>순이익</dt><dd>${money(f.ni)} <span class="mute">최근 4분기${f.nip!=null&&Math.abs(f.nip-f.ni)>Math.abs(f.ni)*0.05?` · 지배주주 ${money(f.nip)}`:''}</span></dd>
       ${A?`<dt>기업가치</dt><dd>${money(r.ev)} <span class="mute">시총+부채</span></dd><dt>투하자본</dt><dd>${money(r.ic)} <span class="mute">자산−유동부채</span></dd>`
@@ -734,7 +753,8 @@ $('#pfImp').onclick=()=>{try{const j=JSON.parse($('#pfTxt').value);if(!Array.isA
 
 /* ---------- 백테스트 ---------- */
 function dataStart(){for(let m=0;m<T;m++){if(ranked(m).length<Math.max(+S.N*2,30))continue;
-  if(useFCF()){const [b,a]=fcfCover(m);if(b<a*0.6)continue;}return m;}return T;}
+  if(useFCF()){const [b,a]=fcfCover(m);if(b<a*0.6)continue;}
+  if(useDIV()){const [b,a]=divCover(m);if(b<a*0.6)continue;}return m;}return T;}
 function fromMonth(){if(S.from==='all')return 0;const y=String(S.from);for(let m=0;m<T;m++)if(D.months[m].slice(0,4)>=y)return m;return T;}
 function startMonth(){return Math.max(dataStart(),fromMonth());}
 function portRet(picks,m0,m1){ // 같은 금액씩 산 뒤 보유 (비용 전, 배수)

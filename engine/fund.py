@@ -23,6 +23,7 @@ FLOW = ("op", "ni", "rev")                             # 손익 (기간 값)
 STOCK = ("ta", "tl", "ca", "cl", "eq")                 # 재무상태표 (시점 값)
 YEARS_BACK = 6
 CORP = {}
+DV = {}                                                # 종목 → {회계연도: (DPS, 사용 시작일)}
 
 
 def _num(s):
@@ -264,6 +265,12 @@ def load(codes):
         return None
     if not raw:
         return None
+    global DV
+    try:
+        import dividends
+        DV = dividends.load(codes, key, CORP, minutes=float(os.environ.get("DV_MINUTES", "15")))
+    except Exception as e:
+        print(f"배당 실패 — 배당 없이 진행: {e}")
     cfd = {}
     mins = float(os.environ.get("CF_MINUTES", "45"))
     if mins > 0:

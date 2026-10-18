@@ -26,7 +26,7 @@ _s = requests.Session()
 _s.headers.update(UA)
 EXCL_SECTOR = {"Finance", "Real Estate", "Utilities"}
 LAG_Q, LAG_A = 45, 80
-FVER = 2                     # 2: 매출액 추가
+FVER = 3                     # 2: 매출액, 3: 배당금 지급 추가
 
 
 def _load(name, default):
@@ -93,10 +93,10 @@ def universe(min_cap=100e6):
 TYPES = ["TotalRevenue", "OperatingIncome", "NetIncomeCommonStockholders", "NetIncome", "NetIncomeIncludingNoncontrollingInterests",
          "TotalAssets", "CurrentAssets", "CurrentLiabilities", "TotalLiabilitiesNetMinorityInterest",
          "StockholdersEquity", "TotalEquityGrossMinorityInterest", "OperatingCashFlow", "CapitalExpenditure",
-         "FreeCashFlow", "OrdinarySharesNumber", "ShareIssued"]
+         "FreeCashFlow", "CashDividendsPaid", "OrdinarySharesNumber", "ShareIssued"]
 FLOWS = {"rev": ["TotalRevenue"], "ebit": ["OperatingIncome"], "ni": ["NetIncomeIncludingNoncontrollingInterests", "NetIncome"],
          "nip": ["NetIncomeCommonStockholders", "NetIncome"], "ocf": ["OperatingCashFlow"],
-         "capex": ["CapitalExpenditure"], "fcfy": ["FreeCashFlow"]}
+         "capex": ["CapitalExpenditure"], "fcfy": ["FreeCashFlow"], "div": ["CashDividendsPaid"]}
 STOCKS = {"ta": ["TotalAssets"], "tl": ["TotalLiabilitiesNetMinorityInterest"], "ca": ["CurrentAssets"],
           "cl": ["CurrentLiabilities"], "eqp": ["StockholdersEquity"], "eq": ["TotalEquityGrossMinorityInterest", "StockholdersEquity"],
           "sh": ["OrdinarySharesNumber", "ShareIssued"]}
@@ -178,8 +178,9 @@ def parse_ts(j):
     if not rows:
         return None
     df = pd.DataFrame(rows)
-    for k in ("rev", "ebit", "ni", "nip", "ocf", "capex", "fcfy", "ta", "tl", "ca", "cl", "eq", "eqp"):
+    for k in ("rev", "ebit", "ni", "nip", "ocf", "capex", "fcfy", "div", "ta", "tl", "ca", "cl", "eq", "eqp"):
         df[k] = df[k] / 1e6
+    df["div"] = df["div"].abs()                  # 배당금 지급은 음수로 적힘
     df["fcf"] = np.where(np.isfinite(df["fcfy"]), df["fcfy"],
                          df["ocf"] + np.where(np.isfinite(df["capex"]), df["capex"], 0))
     df = df.sort_values(["avail", "end"])
@@ -190,7 +191,7 @@ def parse_ts(j):
         top = r["end"]
         out.append(r)
     df = pd.DataFrame(out).drop_duplicates("avail", keep="last").set_index("avail")
-    return df[["ql", "rev", "ebit", "ni", "nip", "fcf", "ta", "tl", "ca", "cl", "eq", "eqp", "sh"]]
+    return df[["ql", "rev", "ebit", "ni", "nip", "fcf", "div", "ta", "tl", "ca", "cl", "eq", "eqp", "sh"]]
 
 
 def load_fund(univ, minutes):
@@ -347,13 +348,18 @@ def main():
         def adj(d):
             return float(np.prod(spl[spl.index > d].values)) if len(spl) else 1.0
         fi = f.index.searchsorted(M, side="right") - 1
-        fl, prev = [], None
+        fl, prev, dv = [], None, []
         for mi, r in enumerate(fi):
             if r < 0 or r == prev:
                 continue
             prev = r
             row = f.iloc[r]
             sh = row["sh"] * adj(f.index[r]) if np.isfinite(row["sh"]) else None
+            # 주당 배당금(최근 4분기 배당금 지급 ÷ 분할 보정 주식 수); 배당 없으면 0
+            if sh and np.isfinite(row["ni"]) or sh and np.isfinite(row["ebit"]):
+                dps = row["div"] * 1e6 / sh if np.isfinite(row["div"]) else 0.0
+                if not dv or abs(dv[-1][1] - dps) > 1e-6:
+                    dv.append([mi, rnd(dps, 4)])
             fl.append([mi] + [rnd(row[k], 0) for k in ("ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp")]
                       + [rnd(sh, 0), rnd(row["rev"], 0)])
         if not fl:
@@ -364,7 +370,7 @@ def main():
             continue
         stocks.append([t, str(meta.loc[t, "name"]), meta.loc[t, "mkt"], int(last_sh), s0,
                        [rnd(x, 2) for x in px], [rnd(x, 1) for x in am], fl, f["ql"].iloc[-1],
-                       (str(meta.loc[t, "industry"]) if "industry" in meta.columns else "") or None])
+                       (str(meta.loc[t, "industry"]) if "industry" in meta.columns else "") or None, dv])
     out = {
         "region": "US", "cap_div": 1e6, "currency": "USD",
         "generated_at": f"{now:%Y-%m-%d %H:%M}",
@@ -372,7 +378,7 @@ def main():
         "fund": True,
         "months": [f"{d:%Y-%m-%d}" for d in months],
         "idx": ix,
-        "fields": ["code", "name", "mkt", "shares", "s0", "px", "amt20", "f", "ql", "ind"],
+        "fields": ["code", "name", "mkt", "shares", "s0", "px", "amt20", "f", "ql", "ind", "dv"],
         "f_fields": ["mi", "ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp", "sh", "rev"],
         "note": "미국(Yahoo 재무): 금액 백만 달러, 시세 달러, mkt K=NYSE Q=나스닥, idx K=S&P500 Q=나스닥종합, sh=분할 보정 발행주식수, 재무 사용 시점 추정(분기+45일, 연간+80일)",
         "stocks": stocks,

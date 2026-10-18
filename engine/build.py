@@ -129,10 +129,19 @@ def main():
         if not fl:
             n_nof += 1
             continue
+        # 배당: 회계연도별 DPS를 사용 시작 월부터 → [[월 번호, DPS], ...]
+        dv = []
+        for fy, (dps, av) in sorted((FD.DV.get(code) or {}).items(), key=lambda x: x[1][1]):
+            mi = int(np.searchsorted(M, pd.Timestamp(av)))
+            if mi < len(M) and (not dv or dv[-1][1] != dps or dv[-1][0] != mi):
+                if dv and dv[-1][0] == mi:
+                    dv[-1][1] = rnd(dps, 0)
+                else:
+                    dv.append([mi, rnd(dps, 0)])
         lr = f.iloc[-1]
         stocks.append([code, name, "Q" if m["market"] == "KOSDAQ" else "K", int(sh), s0,
                        [rnd(x, 0) for x in px], [rnd(x, 0) for x in am], fl,
-                       lr["ql"] if isinstance(lr["ql"], str) else None, ind or None])
+                       lr["ql"] if isinstance(lr["ql"], str) else None, ind or None, dv])
 
     out = {
         "generated_at": f"{now:%Y-%m-%d %H:%M}",
@@ -140,7 +149,7 @@ def main():
         "fund": bool(fund),
         "months": [f"{d:%Y-%m-%d}" for d in months],
         "idx": ix,
-        "fields": ["code", "name", "mkt", "shares", "s0", "px", "amt20", "f", "ql", "ind"],
+        "fields": ["code", "name", "mkt", "shares", "s0", "px", "amt20", "f", "ql", "ind", "dv"],
         "f_fields": ["mi", "ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp", "rev"],
         "note": "px·amt20은 months[s0]부터. f는 [월 번호, 영업이익TTM, 순이익TTM, 자산총계, 부채총계, 유동자산, 유동부채, FCF TTM, 지배주주 순이익 TTM, 지배주주 자본] (억 원), "
                 "그 월말부터 다음 항목 전까지 적용. 금융·유틸리티 제외",
