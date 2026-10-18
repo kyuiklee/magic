@@ -515,12 +515,12 @@ $('#picks').addEventListener('click',e=>{const ad=e.target.closest('[data-add]')
    모닝스타 방식의 '증거' 부분만 숫자로: 투하자본수익률(ROIC)이 자본비용을 몇 년째 넘는지, 이익률이 안정적인지,
    이익이 현금으로 들어오는지. 해자 원천은 업종으로 추정. 기업 유형은 피터 린치 분류 + 지속 상승형·해자 강한 기업 */
 const MOAT_SRC=[
-  [/소프트웨어|software|EDP|자료처리|정보서비스|Computer Communications|Business Services/i,'전환비용','고객이 쓰던 소프트웨어·서비스를 바꾸기 어려움'],
+  [/소프트웨어|software|EDP|자료처리|정보서비스|Computer Communications/i,'전환비용','고객이 쓰던 소프트웨어·서비스를 바꾸기 어려움'],
   [/포털|인터넷|플랫폼|Internet|Interactive|Advertising|광고|게임|Payment|Exchange/i,'네트워크 효과','사용자가 많을수록 가치가 커짐'],
   [/의약|제약|생물|바이오|Pharma|Biotech|Biological|Medical|의료|Diagnostic/i,'무형자산(특허·인허가)','특허·허가로 경쟁자 진입이 막힘'],
-  [/음료|담배|화장품|식료품|과자|Beverage|Tobacco|Food|Apparel|Footwear|의복|Restaurant|Cosmetic|Household/i,'무형자산(브랜드)','브랜드로 더 비싸게 팔 수 있음'],
-  [/철도|Railroad|Pipeline|파이프|공항|항만|통신|Telecom|폐기물|Waste|Environmental|도시가스|Water/i,'효율적 규모','시장이 작거나 규제로 경쟁자가 들어오기 어려움'],
-  [/반도체|Semiconductor|소매|Retail|Department|Discount|도매|Distribution/i,'원가 우위·규모','규모나 공정으로 남보다 싸게 만들거나 팔 수 있음']];
+  [/음료|담배|화장품|식료품|과자|Beverage|Tobacco|Food|Apparel|Footwear|의복|Restaurant|Cosmetic|Household|Computer Manufacturing|Consumer Electronics/i,'무형자산(브랜드)','브랜드로 더 비싸게 팔 수 있음'],
+  [/철도|Railroad|Pipeline|파이프|공항|항만|전기 ?통신업|Telecommunications Services|Cable|폐기물|Waste|Environmental|도시가스|Water Supply/i,'효율적 규모','시장이 작거나 규제로 경쟁자가 들어오기 어려움'],
+  [/반도체|Semiconductor|소매|Retail|Department|Discount/i,'원가 우위·규모','규모나 공정으로 남보다 싸게 만들거나 팔 수 있음']];
 const CYC=/철강|금속|Steel|Metal|Mining|광업|화학|Chemical|해운|해상|Marine|Shipping|정유|석유|Oil|Gas|건설|Homebuild|Construction|자동차|Auto|반도체|Semiconductor|조선|선박|Aluminum|Paper|종이|펄프|시멘트|Cement|Building|기계|Machinery|항공|Airline/i;
 function yearly(o){
   // 최근부터 1년 간격 TTM 재무 (같은 행 중복 제거)
@@ -535,10 +535,10 @@ function analyze(o){
   const roic=Y.map(x=>x.ebit!=null&&x.ta!=null&&x.cl!=null&&x.ta-x.cl>0?x.ebit*(1-tax)/(x.ta-x.cl)*100:null);
   const R=roic.filter(v=>v!=null), n=R.length;
   const mar=Y.map(x=>x.rev>0&&x.ebit!=null?x.ebit/x.rev*100:null).filter(v=>v!=null);
-  const conv=Y.map(x=>x.fcf!=null&&x.ni>0?x.fcf/x.ni:null).filter(v=>v!=null);
+  const cy=Y.filter(x=>x.fcf!=null&&x.ni!=null), sNi=cy.reduce((a,x)=>a+x.ni,0), sF=cy.reduce((a,x)=>a+x.fcf,0);
   const avg=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:null;
   const sd=a=>{if(a.length<2)return null;const m=avg(a);return Math.sqrt(avg(a.map(v=>(v-m)**2)));};
-  const rAvg=avg(R), rMin=n?Math.min(...R):null, mAvg=avg(mar), mCv=mar.length>=2&&mAvg>0?sd(mar)/mAvg:null, cAvg=avg(conv);
+  const rAvg=avg(R), rMin=n?Math.min(...R):null, mAvg=avg(mar), mCv=mar.length>=2&&mAvg>0?sd(mar)/mAvg:null, cAvg=cy.length&&sNi>0?sF/sNi:null;
   const ind=o.ind||'';
   // 해자 등급 (정량 추정): 세후 ROIC가 자본비용(약 8%)을 얼마나 꾸준히 넘는지
   let grade='U', gTxt='판단 보류';
@@ -552,13 +552,14 @@ function analyze(o){
   const ck=[
     [n>=3&&rMin>=8, `세후 ROIC ${n?`평균 ${rAvg.toFixed(0)}% · 최저 ${rMin.toFixed(0)}%`:'계산 불가'} (최근 ${n}년, 자본비용 약 8%)`],
     [mCv!=null&&mCv<=0.35, mar.length?`영업이익률 평균 ${mAvg.toFixed(1)}% · ${mCv!=null?(mCv<=0.2?'매우 안정':mCv<=0.35?'안정':'들쭉날쭉'):'1개 연도'}`:'영업이익률: 매출 데이터 없음'],
-    [cAvg!=null&&cAvg>=0.8, cAvg!=null?`이익의 현금 전환 ${Math.round(cAvg*100)}% (FCF ÷ 순이익)`:'현금 전환: 데이터 없음'],
+    [cAvg!=null&&cAvg>=0.8, cAvg!=null?`이익의 현금 전환 ${cAvg>2?'200% 넘음':cAvg<-1?'마이너스':Math.round(cAvg*100)+'%'} (최근 ${cy.length}년 FCF 합 ÷ 순이익 합)`:(cy.length?'현금 전환: 순이익 합이 적자':'현금 전환: 데이터 없음')],
     [trend==='개선'||trend==='안정', trend?`ROIC 추세 ${trend} (${R[n-1].toFixed(0)}% → ${R[0].toFixed(0)}%)`:'추세: 데이터 부족']];
   // 기업 유형
   const g=(k)=>{const v=Y.map(x=>x[k]);const a=v[0],b=v[v.length-1],yrs=v.length-1;return yrs>=2&&a>0&&b>0?(Math.pow(a/b,1/yrs)-1)*100:null;};
   const gr=g('rev')??g('ebit');
-  const loss=Y.slice(1).some(x=>(x.ebit!=null&&x.ebit<=0)||(x.nip??x.ni)<=0), nowOk=Y.length&&Y[0].ebit>0&&(Y[0].nip??Y[0].ni)>0;
-  const lossAll=Y.some(x=>(x.ebit!=null&&x.ebit<=0)||(x.nip??x.ni)<=0);
+  const neg=x=>(x.ebit!=null&&x.ebit<=0)||((x.nip??x.ni)!=null&&(x.nip??x.ni)<=0);
+  const loss=Y.slice(1).some(neg), nowOk=Y.length&&Y[0].ebit>0&&(Y[0].nip??Y[0].ni)>0;
+  const lossAll=Y.some(neg);
   const eb=Y.map(x=>x.ebit).filter(v=>v!=null), ebCv=eb.length>=3&&avg(eb)>0?sd(eb)/avg(eb):null;
   const eq=f.eqp??(f.ta!=null&&f.tl!=null?f.ta-f.tl:null), pbr=mcap&&eq>0?mcap/eq:null;
   const big=mcap!=null&&mcap>=(REG==='KR'?10000:10000);
@@ -567,13 +568,19 @@ function analyze(o){
   const p3=pxAt(o,L-36), pc=p3&&p?(Math.pow(p/p3,1/3)-1)*100:null, upYears=yr.filter(v=>v!=null&&v>0).length;
   const ebUp=Y.slice(0,-1).filter((x,i)=>x.ebit!=null&&Y[i+1].ebit!=null&&x.ebit>Y[i+1].ebit).length;
   const T_=[];
+  // 이익 급감 후 회복: (과거) 고점 → 그 뒤 저점(고점의 절반 미만) → 지금 저점의 2배 이상
+  const past=Y.slice(1).map(x=>x.ebit), iMax=past.indexOf(Math.max(...past.filter(v=>v!=null))), lows=past.slice(0,iMax).filter(v=>v!=null);
+  const lo=lows.length?Math.min(...lows):null, hi=iMax>=0?past[iMax]:null;
+  const dipRec=nowOk&&lo!=null&&hi>0&&lo<0.5*hi&&Y[0].ebit>=2*Math.max(lo,hi*0.05);
+  // 이익이 해마다 30% 넘게 줄었다 늘었다 한 적이 있으면 경기순환 성격
+  let drops=0,rises=0;for(let i=0;i<Y.length-1;i++){const a=Y[i].ebit,b=Y[i+1].ebit;if(a==null||b==null||b<=0)continue;if(a<b*0.7)drops++;if(a>b*1.3)rises++;}
   if(loss&&nowOk) T_.push(['턴어라운드','몇 년 사이 적자(또는 영업손실)가 있었는데 지금은 흑자']);
-  else if(eb.length>=3&&nowOk&&Y[0].ebit>=2*Math.min(...eb.slice(1))&&Math.min(...eb.slice(1))<0.5*Math.max(...eb.slice(1))) T_.push(['턴어라운드','이익이 크게 줄었다가 두 배 넘게 회복']);
   if(gr!=null&&gr>=20&&!lossAll) T_.push(['고성장',`${g('rev')!=null?'매출':'영업이익'} 연 ${gr.toFixed(0)}% 성장`]);
+  if(dipRec&&!(loss&&nowOk)) T_.push(['턴어라운드','이익이 고점의 절반 아래로 줄었다가 두 배 넘게 회복']);
   if(pc!=null&&pc>=15&&upYears===3&&ebUp>=Math.max(1,Y.length-2)) T_.push(['지속 상승형',`주가 3년 연 ${pc.toFixed(0)}%, 3년 내리 상승 · 이익도 꾸준히 증가`]);
   if(grade==='W') T_.push(['해자 강한 기업','높은 ROIC를 꾸준히 유지']);
   if(big&&gr!=null&&gr>=5&&gr<20&&!lossAll) T_.push(['대형 우량주','덩치가 크고 연 5~20% 꾸준히 성장']);
-  if(CYC.test(ind)||(ebCv!=null&&ebCv>0.6)) T_.push(['경기순환형',CYC.test(ind)?'업황에 따라 이익이 크게 오르내리는 업종':'이익 변동이 큼']);
+  if(CYC.test(ind)||(drops>=1&&(rises>=1||dipRec))) T_.push(['경기순환형',CYC.test(ind)?'업황에 따라 이익이 크게 오르내리는 업종':'이익이 30% 넘게 줄었다 늘었다 한 적이 있음']);
   if(pbr!=null&&pbr<0.6) T_.push(['자산주',`PBR ${pbr.toFixed(2)}배 — 장부가치보다 크게 쌈`]);
   if(gr!=null&&gr<5&&gr>-5&&!lossAll&&(mCv==null||mCv<=0.35)) T_.push(['저성장 안정형',`성장률 연 ${gr.toFixed(0)}% · 이익은 안정적`]);
   if(!T_.length) T_.push(['분류 어려움','데이터가 짧거나 뚜렷한 특징이 없음']);
