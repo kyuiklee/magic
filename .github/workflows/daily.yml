@@ -40,6 +40,7 @@ jobs:
       - name: 검색 실행
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          CF_MINUTES: "45"         # 현금흐름표(FCF) 수집에 쓸 최대 시간 (분)
         run: |
           set -o pipefail
           python -u engine/build.py 2>&1 | while IFS= read -r l; do echo "$(TZ=Asia/Seoul date +%H:%M:%S) $l"; done | tee run.log

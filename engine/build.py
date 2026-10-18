@@ -125,7 +125,7 @@ def main():
                 continue
             prev = r
             row = f.iloc[r]
-            fl.append([mi] + [rnd(row[k], 0) for k in ("ebit", "ni", "ta", "tl", "ca", "cl")])
+            fl.append([mi] + [rnd(row[k], 0) for k in ("ebit", "ni", "ta", "tl", "ca", "cl", "fcf")])
         if not fl:
             n_nof += 1
             continue
@@ -141,8 +141,8 @@ def main():
         "months": [f"{d:%Y-%m-%d}" for d in months],
         "idx": ix,
         "fields": ["code", "name", "mkt", "shares", "s0", "px", "amt20", "f", "ql"],
-        "f_fields": ["mi", "ebit", "ni", "ta", "tl", "ca", "cl"],
-        "note": "px·amt20은 months[s0]부터. f는 [월 번호, 영업이익TTM, 순이익TTM, 자산총계, 부채총계, 유동자산, 유동부채] (억 원), "
+        "f_fields": ["mi", "ebit", "ni", "ta", "tl", "ca", "cl", "fcf"],
+        "note": "px·amt20은 months[s0]부터. f는 [월 번호, 영업이익TTM, 순이익TTM, 자산총계, 부채총계, 유동자산, 유동부채, FCF TTM] (억 원), "
                 "그 월말부터 다음 항목 전까지 적용. 금융·유틸리티 제외",
         "stocks": stocks,
     }
@@ -150,6 +150,8 @@ def main():
     with open(os.path.join(OUT, "mf.json"), "w", encoding="utf-8") as fp:
         json.dump(out, fp, ensure_ascii=False, separators=(",", ":"))
     size = os.path.getsize(os.path.join(OUT, "mf.json")) / 1e6
+    n_fcf = sum(1 for x in stocks if x[7] and x[7][-1][7] is not None)
+    print(f"FCF 있는 종목 {n_fcf}개 (최신 재무 기준)")
     print(f"저장: {len(stocks)}종목 (금융·유틸 제외 {n_ex}, 재무 없음 {n_nof}), {len(months)}개월, {size:.1f}MB "
           f"({time.time() - t0:.0f}초)")
     if not fund:

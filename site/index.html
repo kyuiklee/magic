@@ -135,9 +135,13 @@ nav button[aria-current=page]{color:var(--ink)}
 
   <!-- 공통 조건 -->
   <div class="ctl" id="filters">
-    <div class="seg" role="group" aria-label="공식" id="fMode">
+    <div class="seg" role="group" aria-label="스크리닝 방법" id="fMode">
+      <button data-v="M">마법공식</button><button data-v="PER">저PER</button><button data-v="PBR">저PBR</button><button data-v="FCF">FCF 수익률</button>
+    </div>
+    <div class="seg" role="group" aria-label="마법공식 계산" id="fMf" style="margin-top:8px">
       <button data-v="A">원형 (영업이익)</button><button data-v="B">간편 (PER·ROA)</button>
     </div>
+    <p class="note" id="modeNote"></p>
     <details class="grp" id="fMore"><summary id="fSum">종목 범위</summary>
       <div class="ctl-row"><span>시장</span></div>
       <div class="seg" role="group" aria-label="시장" id="fMkt">
@@ -162,7 +166,7 @@ nav button[aria-current=page]{color:var(--ink)}
   <section class="view on" id="v-rank" aria-label="오늘 순위">
     <div class="list" id="picks"></div>
     <div class="guide" id="guide"></div>
-    <p class="note">이익수익률이 높을수록 싸고, 자본수익률이 높을수록 돈을 잘 버는 회사입니다. 두 순위를 더해 작은 순서대로 보여 줍니다. <span class="new">NEW</span>는 지난달 말 목록에 없던 종목입니다. 재무는 DART 공시 다음 날부터 반영됩니다. 조건 검색 결과이며 매수 권유가 아닙니다.</p>
+    <p class="note"><span class="new">NEW</span>는 지난달 말 목록에 없던 종목입니다. 재무는 DART 공시 다음 날부터 반영됩니다. 조건 검색 결과이며 매수 권유가 아닙니다.</p>
   </section>
 
   <!-- ===== 백테스트 ===== -->
@@ -200,6 +204,13 @@ nav button[aria-current=page]{color:var(--ink)}
         <li>적자 종목, 금융·보험·증권·유틸리티는 제외 (책과 같음). LG·SK 같은 일반 지주회사는 포함</li>
       </ul>
       <p class="note">DART 주요계정만으로는 현금과 차입금을 나눌 수 없어 기업가치에 부채 전체를 넣었습니다. 현금이 많은 회사는 실제보다 덜 싸게, 투하자본은 무형자산·투자자산까지 포함돼 자본수익률이 다소 낮게 나옵니다.</p>
+      <h3>저PER · 저PBR · FCF 수익률</h3>
+      <ul>
+        <li><b>저PER</b>: 시가총액 ÷ 순이익(최근 4분기 합). 이익 대비 싼 종목</li>
+        <li><b>저PBR</b>: 시가총액 ÷ 자본총계(최근 분기). 장부가치 대비 싼 종목. 적자 종목은 뺍니다</li>
+        <li><b>FCF 수익률</b>: (영업활동현금흐름 − 유형·무형자산 취득, 최근 4분기 합) ÷ 시가총액. 회사가 실제로 남기는 현금 대비 싼 종목. 회계 이익보다 꾸미기 어렵습니다</li>
+      </ul>
+      <p class="note">자본총계·순이익은 비지배지분을 포함한 연결 기준입니다. 현금흐름표는 회사마다 따로 받아야 해서, 과거 FCF는 매일 실행 때마다 조금씩 채워집니다(최신 보고서부터). FCF 백테스트는 데이터가 60% 이상 채워진 달부터 시작합니다.</p>
       <h3>책이 권하는 운용</h3>
       <ol>
         <li>상위 20~30종목을 고릅니다.</li>
@@ -231,7 +242,13 @@ const MKT={K:'코스피',Q:'코스닥'};
 const eok=v=>v==null?'-':(Math.abs(v)>=10000?(v/10000).toFixed(v>=100000?0:1)+'조':fmt(Math.round(v))+'억');
 
 let D=null, ST=[], T=0;
-const S={mode:'A',mkt:'A',cap:1000,liq:5,N:20,H:12,fee:0.3,...store.get('s',{})};
+const S={mode:'M',mf:'A',mkt:'A',cap:1000,liq:5,N:20,H:12,fee:0.3,...store.get('s',{})};
+if(S.mode==='A'||S.mode==='B'){S.mf=S.mode;S.mode='M';}   // 예전 저장값 변환
+const MODES={
+  M:{t:'마법공식',note:'이익수익률(쌈)과 자본수익률(돈을 잘 벎) 순위를 더해 작은 순서대로 보여 줍니다.'},
+  PER:{t:'저PER',note:'시가총액 ÷ 순이익(최근 4분기)이 낮은 순서입니다. 적자 종목은 빠집니다.'},
+  PBR:{t:'저PBR',note:'시가총액 ÷ 자본총계가 낮은 순서입니다. 자본잠식·적자(최근 4분기 순이익) 종목은 빠집니다.'},
+  FCF:{t:'FCF 수익률',note:'잉여현금흐름(영업현금흐름 − 설비·무형자산 투자, 최근 4분기) ÷ 시가총액이 높은 순서입니다. FCF가 마이너스면 빠집니다.'}};
 const save=()=>store.set('s',S);
 
 /* ---------- 데이터 ---------- */
@@ -253,7 +270,7 @@ function pxHold(o,m){for(let k=m;k>=o.s0;k--){const v=pxAt(o,k);if(v!=null)retur
 /* m월 순위: 조건에 맞는 전 종목 → [{o, ey, roc, r1, r2, mcap, ...}] (점수 순) */
 const cacheRank=new Map();
 function ranked(m,s=S){
-  const key=[m,s.mode,s.mkt,s.cap,s.liq].join('|');
+  const key=[m,s.mode,s.mf,s.mkt,s.cap,s.liq].join('|');
   if(cacheRank.has(key))return cacheRank.get(key);
   const out=[];
   for(const o of ST){
@@ -261,20 +278,29 @@ function ranked(m,s=S){
     const p=pxAt(o,m), fi=o.fi[m]; if(p==null||fi<0)continue;
     const a=amtAt(o,m); if(a==null||a<s.liq)continue;
     const mcap=p*o.shares/1e8; if(mcap<s.cap)continue;
-    const f=o.f[fi]; let ey,roc,ev=null,ic=null;
-    if(s.mode==='A'){
+    const f=o.f[fi], eq=f.ta!=null&&f.tl!=null?f.ta-f.tl:null;
+    let ey,roc,ev=null,ic=null,y=null;
+    if(s.mode==='M'&&s.mf==='A'){
       if(f.ebit==null||f.ebit<=0||f.tl==null||f.ta==null||f.cl==null)continue;
       ev=mcap+f.tl; ic=f.ta-f.cl; if(ic<=0)continue;
       ey=f.ebit/ev; roc=f.ebit/ic;
-    }else{
+    }else if(s.mode==='M'){
       if(f.ni==null||f.ni<=0||f.ta==null||f.ta<=0)continue;
       ey=f.ni/mcap; roc=f.ni/f.ta;
+    }else if(s.mode==='PER'){
+      if(f.ni==null||f.ni<=0)continue; y=f.ni/mcap;
+    }else if(s.mode==='PBR'){
+      if(eq==null||eq<=0||f.ni==null||f.ni<=0)continue; y=eq/mcap;
+    }else{
+      if(f.fcf==null||f.fcf<=0)continue; y=f.fcf/mcap;
     }
-    out.push({o,f,p,mcap,ev,ic,ey,roc,amt:a});
+    out.push({o,f,p,mcap,ev,ic,ey,roc,y,eq,amt:a});
   }
-  out.sort((x,y)=>y.ey-x.ey).forEach((r,i)=>r.r1=i+1);
-  out.sort((x,y)=>y.roc-x.roc).forEach((r,i)=>r.r2=i+1);
-  out.sort((x,y)=>(x.r1+x.r2)-(y.r1+y.r2)||x.r1-y.r1);
+  if(s.mode==='M'){
+    out.sort((x,y)=>y.ey-x.ey).forEach((r,i)=>r.r1=i+1);
+    out.sort((x,y)=>y.roc-x.roc).forEach((r,i)=>r.r2=i+1);
+    out.sort((x,y)=>(x.r1+x.r2)-(y.r1+y.r2)||x.r1-y.r1);
+  }else out.sort((a,b)=>b.y-a.y).forEach((r,i)=>r.r1=i+1);
   cacheRank.set(key,out);return out;
 }
 
@@ -291,6 +317,14 @@ function drawHeader(){
   if(!D.fund) w.push('재무 데이터가 없어 순위를 계산할 수 없습니다. 저장소 Settings → Secrets에 DART_API_KEY를 등록하고 다시 실행하세요.');
   $('#warns').innerHTML=w.map(x=>`<div class="warn">${x}</div>`).join('');
 }
+function fcfCover(m){let a=0,b=0;for(const o of ST){const fi=o.fi[m];if(fi<0||pxAt(o,m)==null)continue;a++;if(o.f[fi].fcf!=null)b++;}return [b,a];}
+function drawMode(){
+  $('#fMf').style.display=S.mode==='M'?'':'none';
+  let t=MODES[S.mode].note;
+  if(S.mode==='FCF'&&D){const [b,a]=fcfCover(T-1);
+    t+=` 현금흐름 데이터 ${fmt(b)}/${fmt(a)}종목.`+(b<a*0.8?' 매일 실행 때마다 더 채워집니다.':'');}
+  $('#modeNote').textContent=t;
+}
 function drawSum(){
   $('#fSum').textContent=`${{A:'전체 시장',K:'코스피',Q:'코스닥'}[S.mkt]} · 시총 ${eok(+S.cap)}↑ · 거래대금 ${S.liq}억↑ · ${S.N}종목`;
 }
@@ -300,21 +334,30 @@ function drawRank(){
   const L=T-1, all=ranked(L), arr=all.slice(0,+S.N);
   const prev=new Set(T>1?ranked(L-1).slice(0,+S.N).map(r=>r.o.code):[]);
   if(!arr.length){$('#picks').innerHTML=`<div class="empty">${D.fund?'조건에 맞는 종목이 없습니다. 시가총액·거래대금 하한을 낮춰 보세요.':'재무 데이터가 아직 없습니다.'}</div>`;$('#guide').innerHTML='';return;}
-  const A=S.mode==='A', l1=A?'이익수익률':'1/PER', l2=A?'자본수익률':'ROA';
+  const M=S.mode==='M', A=M&&S.mf==='A', l1=A?'이익수익률':'1/PER', l2=A?'자본수익률':'ROA';
+  const ratio=(v,d=1)=>v!=null&&isFinite(v)&&v>0?v.toFixed(d)+'배':'-';
+  const side=r=>{const f=r.f,roe=r.eq>0&&f.ni!=null?f.ni/r.eq*100:null,per1=f.ni>0?r.mcap/f.ni:null;
+    if(M)return `<span>${l1}</span><b>${(r.ey*100).toFixed(1)}%</b><span>${l2}</span><b>${(r.roc*100).toFixed(0)}%</b>`;
+    if(S.mode==='PER')return `<span>PER</span><b>${ratio(per1)}</b><span>ROE</span><b>${roe!=null?roe.toFixed(0)+'%':'-'}</b>`;
+    if(S.mode==='PBR')return `<span>PBR</span><b>${ratio(r.mcap/r.eq,2)}</b><span>ROE</span><b>${roe!=null?roe.toFixed(0)+'%':'-'}</b>`;
+    return `<span>FCF 수익률</span><b>${(r.y*100).toFixed(1)}%</b><span>PER</span><b>${ratio(per1)}</b>`;};
   const money=+store.get('money',0)||0, per=money?money/arr.length:0;
   $('#picks').innerHTML=arr.map((r,i)=>{const o=r.o,f=r.f,isNew=prev.size&&!prev.has(o.code);
     const per1=f.ni>0?r.mcap/f.ni:null;
     return `<div class="item"><button aria-expanded="false">
       <span class="rk">${i+1}</span>
       <span><div class="nm">${esc(o.name)}<span class="mk ${o.mkt}">${MKT[o.mkt]}</span>${isNew?'<span class="new">NEW</span>':''}</div>
-      <div class="px"><b>${fmt(r.p)}</b> · 시총 ${eok(r.mcap)}${per1?` · PER ${per1.toFixed(1)}`:''}</div></span>
-      <span class="sc"><span>${l1}</span><b>${(r.ey*100).toFixed(1)}%</b><span>${l2}</span><b>${(r.roc*100).toFixed(0)}%</b></span>
+      <div class="px"><b>${fmt(r.p)}</b> · 시총 ${eok(r.mcap)}${M&&per1?` · PER ${per1.toFixed(1)}`:''}</div></span>
+      <span class="sc">${side(r)}</span>
     </button><div class="detail"><dl>
-      <dt>순위</dt><dd>${l1} ${r.r1}위 + ${l2} ${r.r2}위 = ${r.r1+r.r2} <span class="mute">(${all.length}종목 중)</span></dd>
+      <dt>순위</dt><dd>${M?`${l1} ${r.r1}위 + ${l2} ${r.r2}위 = ${r.r1+r.r2}`:`${r.r1}위`} <span class="mute">(${all.length}종목 중)</span></dd>
+      <dt>PER · PBR</dt><dd>${ratio(f.ni>0?r.mcap/f.ni:null)} · ${ratio(r.eq>0?r.mcap/r.eq:null,2)}</dd>
+      <dt>FCF 수익률</dt><dd>${f.fcf!=null?`<span class="${cls(f.fcf)}">${(f.fcf/r.mcap*100).toFixed(1)}%</span> <span class="mute">FCF ${eok(f.fcf)}</span>`:'<span class="mute">데이터 없음</span>'}</dd>
+      <dt>ROE</dt><dd>${r.eq>0&&f.ni!=null?(f.ni/r.eq*100).toFixed(1)+'%':'-'}</dd>
       <dt>영업이익</dt><dd>${eok(f.ebit)} <span class="mute">최근 4분기</span></dd>
       <dt>순이익</dt><dd>${eok(f.ni)} <span class="mute">최근 4분기</span></dd>
       ${A?`<dt>기업가치</dt><dd>${eok(r.ev)} <span class="mute">시총+부채</span></dd><dt>투하자본</dt><dd>${eok(r.ic)} <span class="mute">자산−유동부채</span></dd>`
-         :`<dt>자산총계</dt><dd>${eok(f.ta)}</dd>`}
+         :`<dt>자본총계</dt><dd>${eok(r.eq)}</dd>`}
       <dt>부채비율</dt><dd>${f.ta&&f.tl!=null&&f.ta-f.tl>0?Math.round(f.tl/(f.ta-f.tl)*100)+'%':'-'}</dd>
       <dt>기준 분기</dt><dd>${o.ql||'-'}</dd>
       <dt>거래대금</dt><dd>${fmt(Math.round(r.amt))}억 <span class="mute">20일 평균</span></dd>
@@ -332,7 +375,8 @@ $('#picks').addEventListener('click',e=>{const b=e.target.closest('.item>button'
   const it=b.parentElement,o=!it.classList.contains('open');it.classList.toggle('open',o);b.setAttribute('aria-expanded',o);});
 
 /* ---------- 백테스트 ---------- */
-function startMonth(){for(let m=0;m<T;m++)if(ranked(m).length>=Math.max(+S.N*2,30))return m;return T;}
+function startMonth(){for(let m=0;m<T;m++){if(ranked(m).length<Math.max(+S.N*2,30))continue;
+  if(S.mode==='FCF'){const [b,a]=fcfCover(m);if(b<a*0.6)continue;}return m;}return T;}
 function portRet(picks,m0,m1){ // 같은 금액씩 산 뒤 보유 (비용 전, 배수)
   let s=0,n=0;for(const r of picks){const a=pxAt(r.o,m0),b=pxHold(r.o,m1);if(a&&b){s+=b/a;n++;}}return n?s/n:1;}
 function simulate(){
@@ -416,9 +460,9 @@ function drawBT(){
 /* ---------- 조작 ---------- */
 function bindSeg(id,k,after){$$(`#${id} button`).forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.v)===String(S[k]));
   b.onclick=()=>{S[k]=isNaN(+b.dataset.v)?b.dataset.v:+b.dataset.v;save();$$(`#${id} button`).forEach(x=>x.setAttribute('aria-pressed',x===b));after();};});}
-const redraw=()=>{drawSum();drawRank();if($('#v-bt').classList.contains('on'))drawBT();else btDirty=true;};
+const redraw=()=>{drawMode();drawSum();drawRank();if($('#v-bt').classList.contains('on'))drawBT();else btDirty=true;};
 let btDirty=true;
-[['fMode','mode'],['fMkt','mkt'],['fCap','cap'],['fLiq','liq'],['fN','N']].forEach(([id,k])=>bindSeg(id,k,redraw));
+[['fMode','mode'],['fMf','mf'],['fMkt','mkt'],['fCap','cap'],['fLiq','liq'],['fN','N']].forEach(([id,k])=>bindSeg(id,k,redraw));
 [['bH','H'],['bFee','fee']].forEach(([id,k])=>bindSeg(id,k,drawBT));
 $$('nav button').forEach(b=>b.onclick=()=>{const v=b.dataset.v;
   $$('nav button').forEach(x=>x.toggleAttribute('aria-current',x===b));if(b.hasAttribute('aria-current'))b.setAttribute('aria-current','page');
@@ -428,7 +472,7 @@ $$('nav button').forEach(b=>b.onclick=()=>{const v=b.dataset.v;
   store.set('tab',v);window.scrollTo(0,0);});
 
 fetch('data/mf.json?t='+Date.now()).then(r=>{if(!r.ok)throw new Error(r.status);return r.json();}).then(j=>{
-  D=j;prep();drawHeader();drawSum();drawRank();
+  D=j;prep();drawHeader();drawMode();drawSum();drawRank();
   const t=store.get('tab','rank');const nb=$(`nav button[data-v="${t}"]`);if(nb&&t!=='rank')nb.click();
 }).catch(e=>{$('#tdate').textContent='데이터 없음';
   $('#picks').innerHTML=`<div class="empty">아직 데이터가 없습니다. GitHub Actions에서 "마법공식 검색"을 한 번 실행해 주세요.<br><small>(${esc(e.message)})</small></div>`;});

@@ -4,6 +4,7 @@
 - 연결재무제표가 있으면 연결, 없으면 별도
 - 손익: 영업이익(EBIT 대용)·당기순이익을 분기값으로 바꾼 뒤 최근 4분기 합(TTM)
 - 재무상태표: 자산총계·부채총계·유동자산·유동부채 (그 보고서 기준 시점 값)
+- FCF: cashflow.py (단일회사 전체 재무제표의 현금흐름표)
 금액 단위는 억 원.
 """
 import os, io, time, gzip, pickle, zipfile
@@ -21,6 +22,7 @@ Q_END = {"11013": (3, 31), "11012": (6, 30), "11014": (9, 30), "11011": (12, 31)
 FLOW = ("op", "ni")                                    # 손익 (기간 값)
 STOCK = ("ta", "tl", "ca", "cl", "eq")                 # 재무상태표 (시점 값)
 YEARS_BACK = 6
+CORP = {}
 
 
 def _num(s):
@@ -129,6 +131,8 @@ def load_raw(codes, key, refresh_hours=20):
             if not cache.get("corp"):
                 return None
     corp = cache["corp"]
+    global CORP
+    CORP = corp
     corps = [corp[c] for c in codes if c in corp]
     print(f"DART 회사코드 매칭 {len(corps)}/{len(codes)}")
     today = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None)
@@ -174,9 +178,19 @@ def load_raw(codes, key, refresh_hours=20):
     return cache["raw"]
 
 
-def series(raw, code):
+def _fcf_ttm(cf, y, qn):
+    """현금흐름표 누적 값 → 최근 4분기 FCF (원)"""
+    if not cf:
+        return np.nan
+    if qn == 4:
+        return cf.get((y, 4), np.nan)
+    a, b, c = cf.get((y - 1, 4)), cf.get((y, qn)), cf.get((y - 1, qn))
+    return a + b - c if None not in (a, b, c) else np.nan
+
+
+def series(raw, code, cf=None):
     """종목 하나의 지표를 공시일(다음 날) 기준 시계열로.
-    열: ebit, ni (최근 4분기 합), ta, tl, ca, cl, eq (억 원), ql (기준 분기 '26.2Q')"""
+    열: ebit, ni, fcf (최근 4분기 합), ta, tl, ca, cl, eq (억 원), ql (기준 분기 '26.2Q')"""
     Q = {}
     years = sorted({y for y, _ in raw})
     for y in years:
@@ -214,6 +228,8 @@ def series(raw, code):
         for k in STOCK:
             v = Q[q][k]
             r[k] = v / 1e8 if np.isfinite(v) else np.nan
+        v = _fcf_ttm(cf, q // 4, q % 4 + 1)
+        r["fcf"] = v / 1e8 if np.isfinite(v) else np.nan
         rows.append(r)
     if not rows:
         return None
@@ -235,9 +251,17 @@ def load(codes):
         return None
     if not raw:
         return None
+    cfd = {}
+    mins = float(os.environ.get("CF_MINUTES", "45"))
+    if mins > 0:
+        try:
+            import cashflow
+            cfd = cashflow.load(codes, key, CORP, raw, minutes=mins)
+        except Exception as e:
+            print(f"현금흐름 실패 — FCF 없이 진행: {e}")
     out = {}
     for c in codes:
-        s = series(raw, c)
+        s = series(raw, c, cfd.get(c))
         if s is not None:
             out[c] = s
     print(f"재무 시계열 {len(out)}종목")
