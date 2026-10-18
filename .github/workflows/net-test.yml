@@ -1,0 +1,36 @@
+name: 접속 점검 (수동)
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pykrx finance-datareader requests
+      - name: 점검
+        run: |
+          cat > t.py <<'PY'
+          import time
+          from pykrx import stock
+          for d in ("20261016", "20240628", "20220630"):
+              try:
+                  df = stock.get_market_fundamental(d, market="ALL")
+                  print(d, df.shape, list(df.columns)); print(df.head(3)); print("005930" in df.index and df.loc["005930"].to_dict())
+              except Exception as e:
+                  print(d, "fail", e)
+              time.sleep(1)
+          import requests
+          r = requests.get("https://finance.naver.com/item/main.naver?code=005930", headers={"User-Agent":"Mozilla/5.0"}, timeout=20)
+          print("naver item", r.status_code, "배당수익률" in r.content.decode("euc-kr","ignore"))
+          PY
+          python t.py 2>&1 | tee net.log
+      - name: 결과 저장
+        if: always()
+        run: |
+          mkdir out && cp net.log out/ || true
+          cd out && git init -q -b net-test && git config user.name gh && git config user.email gh@users.noreply.github.com
+          git add -A && git commit -q -m t && git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" net-test
