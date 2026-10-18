@@ -4,7 +4,11 @@ on:
   schedule:
     # 시간은 UTC 기준 (KST = UTC+9). GitHub 예약 실행은 수 분~수십 분 늦게 시작될 수 있습니다.
     - cron: "8 7 * * 1-5"    # 16:08 KST — 장 마감 후
-  workflow_dispatch: {}      # GitHub 앱/웹에서 수동 실행 버튼
+  workflow_dispatch:         # GitHub 앱/웹에서 수동 실행 버튼
+    inputs:
+      cf_minutes:
+        description: "현금흐름표(FCF) 수집 최대 시간 (분)"
+        default: "45"
 
 permissions:
   contents: write
@@ -40,7 +44,7 @@ jobs:
       - name: 검색 실행
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
-          CF_MINUTES: "45"         # 현금흐름표(FCF) 수집에 쓸 최대 시간 (분)
+          CF_MINUTES: ${{ github.event.inputs.cf_minutes || '45' }}   # 현금흐름표(FCF) 수집 최대 시간 (분)
         run: |
           set -o pipefail
           python -u engine/build.py 2>&1 | while IFS= read -r l; do echo "$(TZ=Asia/Seoul date +%H:%M:%S) $l"; done | tee run.log
@@ -49,6 +53,7 @@ jobs:
         if: always()
         run: |
           mkdir -p out && cp run.log out/ 2>/dev/null || true
+          cp site/data/mf.json out/ 2>/dev/null || true
           cd out
           git init -q -b run-output
           git config user.name "github-actions"
