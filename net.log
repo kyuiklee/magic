@@ -1,0 +1,8 @@
+KRX 로그인 실패: KRX_ID 또는 KRX_PW 환경 변수가 설정되지 않았습니다.
+Error occurred in get_market_fundamental_by_ticker: Expecting value: line 1 column 1 (char 0)
+20261016 fail "None of [Index(['BPS', 'PER', 'PBR', 'EPS', 'DIV', 'DPS'], dtype='object')] are in the [columns]"
+Error occurred in get_market_fundamental_by_ticker: Expecting value: line 1 column 1 (char 0)
+20240628 fail "None of [Index(['BPS', 'PER', 'PBR', 'EPS', 'DIV', 'DPS'], dtype='object')] are in the [columns]"
+Error occurred in get_market_fundamental_by_ticker: Expecting value: line 1 column 1 (char 0)
+20220630 fail "None of [Index(['BPS', 'PER', 'PBR', 'EPS', 'DIV', 'DPS'], dtype='object')] are in the [columns]"
+naver item 200 False
