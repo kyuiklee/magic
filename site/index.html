@@ -137,6 +137,16 @@ textarea.inp{min-height:70px;font-size:12px;margin-top:8px}
 .toast{position:fixed;left:50%;bottom:calc(80px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);
   padding:9px 14px;border-radius:10px;font-size:13.5px;font-weight:600;z-index:9;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
 .toast.on{opacity:1}
+.st-card{background:var(--surface);border-radius:14px;padding:14px;margin:10px 0}
+.st-card h3{font-size:16px;font-weight:720;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.st-card .desc{font-size:12.5px;color:var(--sub);margin-top:3px;line-height:1.5}
+.st-card .names{font-size:13.5px;margin-top:10px;line-height:1.6}
+.st-card .names b{font-weight:680}
+.badge{font-size:11px;font-weight:800;padding:1px 7px;border-radius:999px;background:var(--acc-soft);color:var(--acc)}
+.st-list{margin-top:8px;border-top:1px solid var(--line)}
+.st-list div{display:grid;grid-template-columns:24px 1fr auto;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.st-list span:first-child{color:var(--sub);font-weight:700;text-align:center}
+.st-list .v{text-align:right;color:var(--sub);font-size:12.5px}
 nav{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);
   padding:6px 0 calc(6px + env(safe-area-inset-bottom));z-index:5}
 nav .wrap{display:flex}
@@ -190,6 +200,19 @@ nav button[aria-current=page]{color:var(--ink)}
     <div class="list" id="picks"></div>
     <div class="guide" id="guide"></div>
     <p class="note"><span class="new">NEW</span>는 지난달 말 목록에 없던 종목입니다. 재무는 공시 다음 날부터 반영됩니다. 조건 검색 결과이며 매수 권유가 아닙니다.</p>
+  </section>
+
+  <!-- ===== 내 전략 ===== -->
+  <section class="view" id="v-st" aria-label="내 전략">
+    <div class="guide" style="margin-top:0">
+      <b>지금 설정을 전략으로 저장</b> · 순위·백테스트 탭에서 고른 스크리닝 방법, 종목 범위, 보유 기간을 그대로 저장합니다. 저장한 전략은 매일 갱신된 데이터로 오늘 종목과 성과를 다시 계산합니다.
+      <div class="ctl-row"><label for="stName">전략 이름</label><small id="stNow"></small></div>
+      <input class="inp" id="stName" placeholder="예: 코스피 대형 가치주">
+      <div class="btns"><button class="btn pri" id="stSave">저장</button></div>
+    </div>
+    <div id="stCards"></div>
+    <p class="note" id="stOther"></p>
+    <p class="note">성과는 백테스트 탭과 같은 계산입니다(분할 운용, 월말 종가, 비용 차감). 승률·중앙값은 종목 한 건씩 기준입니다. <b>추천</b> 전략은 국내·미국 데이터로 조건 수천 개를 시험해, 종목 수·시총·거래대금을 조금 바꿔도 결과가 유지되는 조건을 고른 것입니다. 과거 결과가 앞으로를 보장하지 않습니다.</p>
   </section>
 
   <!-- ===== 포트폴리오 ===== -->
@@ -283,6 +306,7 @@ nav button[aria-current=page]{color:var(--ink)}
 
 <nav aria-label="메뉴"><div class="wrap">
   <button data-v="rank" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>순위</button>
+  <button data-v="st"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>내 전략</button>
   <button data-v="pf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16v11H4zM9 8V5h6v3M4 13h16"/></svg>포트폴리오</button>
   <button data-v="bt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16M5 15l4-5 4 3 6-7"/></svg>백테스트</button>
   <button data-v="how"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5zM9 12h6M9 16h6M9 8h3"/></svg>방법</button>
@@ -650,6 +674,79 @@ function drawBT(){
   }else $('#btPick').innerHTML='<div class="empty">아직 끝난 건이 없습니다.</div>';
 }
 
+/* ---------- 내 전략 ---------- */
+const SK=['mode','mf','sel','mkt','cap','liq','N','H','fee','from'];
+const PRESETS=[
+  {id:'p_kr',preset:1,region:'KR',name:'국내 추천: 코스피 대형 저PER+저PBR',mode:'V',mf:'A',sel:['PER','PBR'],mkt:'K',cap:10000,liq:5,N:20,H:12,fee:0.3,from:'all'},
+  {id:'p_us',preset:1,region:'US',name:'미국 추천: NYSE 저PER+저PBR',mode:'V',mf:'A',sel:['PER','PBR'],mkt:'K',cap:1000,liq:5,N:20,H:12,fee:0.3,from:'all'}];
+let STRATS=store.get('strats',null);
+if(!Array.isArray(STRATS)){STRATS=PRESETS.map(x=>({...x}));store.set('strats',STRATS);}
+const stSave=()=>store.set('strats',STRATS);
+function withS(st,fn){const bk={};SK.forEach(k=>{bk[k]=S[k];S[k]=Array.isArray(st[k])?[...st[k]]:st[k];});
+  try{return fn();}finally{SK.forEach(k=>S[k]=bk[k]);}}
+function descS(st){return withS(st,()=>{const lb=(arr,v)=>(arr.find(x=>x[0]==v)||[0,v])[1];
+  return `${stratName()} · ${{A:'전체 시장',...RG.mkt}[S.mkt]} · 시총 ${lb(RG.caps,S.cap)}↑ · 거래대금 ${lb(RG.liqs,S.liq)}↑ · ${S.N}종목 · 보유 ${hTxt(+S.H)}`;});}
+function stStats(st){return withS(st,()=>{
+  const L=T-1, picks=ranked(L).slice(0,+S.N), prev=new Set(T>1?ranked(L-1).slice(0,+S.N).map(r=>r.o.code):[]);
+  const R=simulate(); let o={picks,prev};
+  if(R){const m0=R.m0,last=R.curve[R.curve.length-1][1],yrs=(new Date(D.months[T-1])-new Date(D.months[m0]))/3.156e10;
+    const ik=S.mkt==='Q'?'Q':'K',ix=D.idx[ik];
+    o.cagr=(Math.pow(1+last/100,1/yrs)-1)*100; o.icagr=ix&&ix[m0]?(Math.pow(ix[T-1]/ix[m0],1/yrs)-1)*100:null; o.mdd=R.mdd; o.from=D.months[m0].slice(0,7);
+    const full=R.coh.filter(c=>c.full).map(c=>c.r); o.med=med(full); o.ncoh=full.length;
+    o.goal=full.length?full.filter(v=>v>=(Math.pow(1.15,S.H/12)-1)*100).length/full.length*100:null;
+    if(R.ind.length){o.win=R.ind.filter(v=>v>0).length/R.ind.length*100;o.pmed=med(R.ind);o.pmean=mean(R.ind);}}
+  return o;});}
+let stOpen=new Set();
+function drawST(){
+  $('#stNow').textContent=descS(Object.fromEntries(SK.map(k=>[k,S[k]])));
+  $('#stName').placeholder=stratName()+' · '+({A:'전체',...RG.mkt}[S.mkt]);
+  const mine=STRATS.filter(x=>x.region===REG), other=STRATS.length-mine.length;
+  $('#stOther').textContent=other?`${REG==='KR'?'미국':'국내'} 전략 ${other}개는 위쪽에서 ${REG==='KR'?'미국을':'국내를'} 고르면 보입니다.`:'';
+  if(!mine.length){$('#stCards').innerHTML='<div class="empty">저장한 전략이 없습니다.</div>';return;}
+  $('#stCards').innerHTML=mine.map(st=>{const x=stStats(st), N=+st.N;
+    const ix=RG.idx[st.mkt==='Q'?'Q':'K'];
+    const nNew=x.prev.size?x.picks.filter(r=>!x.prev.has(r.o.code)).length:0;
+    const chk=x.win!=null?[['평균 > 0',x.pmean>0],['승률 ≥ 51%',x.win>=51],['중앙값 > 0',x.pmed>0]]:[];
+    const open=stOpen.has(st.id);
+    return `<div class="st-card" data-id="${st.id}">
+      <h3>${esc(st.name)}${st.preset?'<span class="badge">추천</span>':''}</h3>
+      <div class="desc">${esc(descS(st))}</div>
+      ${x.cagr!=null?`<div class="stats"><div>연 수익 (${x.from}~)<b class="${cls(x.cagr)}">${pct(x.cagr)}</b></div><div>${ix} 연<b>${pct(x.icagr)}</b></div><div>최대 낙폭<b class="dn">${pct(x.mdd,0)}</b></div>
+        <div>${hTxt(+st.H)} 수익 중앙<b class="${cls(x.med)}">${pct(x.med)}</b></div><div>건별 승률<b>${x.win!=null?x.win.toFixed(0)+'%':'-'}</b></div><div>연 15% 이상<b>${x.goal!=null?Math.round(x.goal)+'%':'-'}</b></div></div>
+        <div class="checks">${chk.map(([t,ok])=>`<div class="ck ${ok?'ok':'no'}">${t}<b>${ok?'✓ 충족':'✗ 미달'}</b></div>`).join('')}</div>`
+        :'<p class="note">백테스트할 기간이 부족합니다.</p>'}
+      <div class="names"><span class="mute">${D.trade_date.slice(5).replace('-','/')} 기준 ${x.picks.length}종목${nNew?` · 이번 달 새로 ${nNew}개`:''}</span><br>
+        ${x.picks.slice(0,6).map(r=>`<b>${esc(r.o.name)}</b>${x.prev.size&&!x.prev.has(r.o.code)?'<span class="new">NEW</span>':''}`).join(' · ')}${x.picks.length>6?' …':''}</div>
+      ${open?`<div class="st-list">${x.picks.map((r,i)=>`<div><span>${i+1}</span><span>${esc(r.o.name)}${x.prev.size&&!x.prev.has(r.o.code)?'<span class="new">NEW</span>':''}</span><span class="v">${RG.price(r.p)} · ${money(r.mcap)}</span></div>`).join('')}</div>`:''}
+      <div class="btns"><button class="btn" data-st="list">${open?'목록 접기':`${x.picks.length}종목 모두 보기`}</button>
+        <button class="btn pri" data-st="apply">이 전략으로 순위 보기</button>
+        <button class="btn" data-st="pf">모두 포트폴리오에 담기</button>
+        ${st.preset?'':'<button class="btn warn" data-st="del">삭제</button>'}</div>
+    </div>`;}).join('');
+}
+function syncSeg(id,v){$$(`#${id} button`).forEach(b=>b.setAttribute('aria-pressed',String(String(b.dataset.v)===String(v))));}
+function applyStrat(st){
+  SK.forEach(k=>S[k]=Array.isArray(st[k])?[...st[k]]:st[k]); S.rg=S.rg||{}; S.rg[REG]={cap:S.cap,liq:S.liq,mkt:S.mkt}; save();
+  setupRegionFilters(); syncSeg('fMf',S.mf); syncSeg('fN',S.N); syncSeg('bFee',S.fee); syncSeg('bFrom',S.from);
+  $('#bH').value=S.H; $('#bHv').textContent=hTxt(+S.H);
+  redraw(); $('nav button[data-v="rank"]').click(); toast(`'${st.name}' 적용`);
+}
+$('#stCards').addEventListener('click',e=>{const b=e.target.closest('[data-st]'); if(!b)return;
+  const id=b.closest('.st-card').dataset.id, st=STRATS.find(x=>x.id===id); if(!st)return;
+  const a=b.dataset.st;
+  if(a==='list'){stOpen.has(id)?stOpen.delete(id):stOpen.add(id);drawST();}
+  else if(a==='apply')applyStrat(st);
+  else if(a==='pf'){const x=stStats(st);let n=0;const budget=+store.get(RG.money_key,0)||0,per=budget?budget/x.picks.length:0;
+    for(const r of x.picks)if(pfAdd(r.o.code,{q:per?Math.max(1,Math.floor(per/r.p)):1,silent:true}))n++;
+    PF.h.forEach(h=>{if(x.picks.some(r=>r.o.code===h.code)&&h.tag!==st.name&&h.d===D.trade_date)h.tag=st.name;});pfSave();
+    toast(n?`${n}종목을 포트폴리오에 담았습니다`:'이미 모두 담겨 있습니다');}
+  else if(a==='del'){if(b.dataset.sure){STRATS=STRATS.filter(x=>x.id!==id);stSave();drawST();toast('삭제했습니다');}
+    else{b.dataset.sure='1';b.textContent='한 번 더 누르면 삭제';setTimeout(()=>{if(b.isConnected){delete b.dataset.sure;b.textContent='삭제';}},3000);}}
+});
+$('#stSave').onclick=()=>{const name=$('#stName').value.trim()||$('#stName').placeholder;
+  STRATS.push({id:'s'+Date.now().toString(36),region:REG,name,...Object.fromEntries(SK.map(k=>[k,Array.isArray(S[k])?[...S[k]]:S[k]]))});
+  stSave();$('#stName').value='';drawST();toast(`'${name}' 저장`);};
+
 /* ---------- 조작 ---------- */
 function bindSeg(id,k,after){$$(`#${id} button`).forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.v)===String(S[k]));
   b.onclick=()=>{S[k]=isNaN(+b.dataset.v)?b.dataset.v:+b.dataset.v;save();$$(`#${id} button`).forEach(x=>x.setAttribute('aria-pressed',x===b));after();};});}
@@ -669,7 +766,8 @@ const hTxt=h=>h%12===0?`${h/12}년`:(h>12?`${Math.floor(h/12)}년 ${h%12}개월`
 $$('nav button').forEach(b=>b.onclick=()=>{const v=b.dataset.v;
   $$('nav button').forEach(x=>x.toggleAttribute('aria-current',x===b));if(b.hasAttribute('aria-current'))b.setAttribute('aria-current','page');
   $$('.view').forEach(x=>x.classList.toggle('on',x.id==='v-'+v));
-  $('#filters').style.display=v==='how'||v==='pf'?'none':'';
+  $('#filters').style.display=v==='how'||v==='pf'||v==='st'?'none':'';
+  if(v==='st'&&D)drawST();
   if(v==='bt'&&btDirty&&D){btDirty=false;drawBT();}
   if(v==='pf'&&D)drawPF();
   store.set('tab',v);window.scrollTo(0,0);});
@@ -689,6 +787,7 @@ function showData(j){
   drawHeader();drawMode();drawSum();drawRank();btDirty=true;pfDirty=true;
   if($('#v-bt').classList.contains('on')){btDirty=false;drawBT();}
   if($('#v-pf').classList.contains('on'))drawPF();
+  if($('#v-st').classList.contains('on'))drawST();
 }
 function loadRegion(first){
   RG=RC[REG]; MKT=RG.mkt; applyRegionSettings(); setupRegionFilters(); drawSum();
