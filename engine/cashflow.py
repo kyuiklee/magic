@@ -28,7 +28,7 @@ NIP_ID = ("ifrs-full_ProfitLossAttributableToOwnersOfParent", "ifrs_ProfitLossAt
 EQP_ID = ("ifrs-full_EquityAttributableToOwnersOfParent", "ifrs_EquityAttributableToOwnersOfParent")
 NI_ID = ("ifrs-full_ProfitLoss", "ifrs_ProfitLoss")
 EQ_ID = ("ifrs-full_Equity", "ifrs_Equity")
-VER = 2                                   # 2: 지배주주 순이익·자본 포함
+VER = 3                                   # 2: 지배주주 순이익·자본 포함, 3: 총포괄이익 줄 오인 수정
 
 
 class Limit(Exception):
@@ -46,16 +46,24 @@ def _pick(rows, qn=4):
     """전체 재무제표 행들 → {ocf, capex, nip, eqp} (원). 계정 ID 우선, 없으면 계정명
     nip = 지배주주 순이익 (연초부터 누적), eqp = 지배주주 자본. 별도재무제표면 순이익·자본 전체"""
     ocf = ppe = itg = nip = eqp = ni = eq = np.nan
+    nip_nm = np.nan                       # 계정 ID 없이 이름으로만 찾은 값 (ID로 못 찾을 때만 씀)
+    in_ci = {}                            # 손익계산서별: 총포괄이익 구간에 들어섰는지
     for r in rows:
         sj = r.get("sj_div")
         aid = str(r.get("account_id", "")).strip()
         nm = str(r.get("account_nm", "")).replace(" ", "")
         if sj in ("IS", "CIS"):
+            if "포괄" in nm or "ComprehensiveIncome" in aid or "OtherComprehensive" in aid:
+                in_ci[sj] = True          # 이후 '지배기업 소유주지분'은 총포괄이익 귀속 → 순이익 아님
             v = _num(r.get("thstrm_add_amount")) if qn in (2, 3) else _num(r.get("thstrm_amount"))
             if qn in (2, 3) and not np.isfinite(v):
                 continue
-            if not np.isfinite(nip) and (aid in NIP_ID or nm.startswith(("지배기업의소유주", "지배기업소유주", "지배주주"))):
-                nip = v
+            if aid in NIP_ID:
+                if not np.isfinite(nip):
+                    nip = v
+            elif (not np.isfinite(nip_nm) and not in_ci.get(sj) and "Comprehensive" not in aid
+                  and nm.startswith(("지배기업의소유주", "지배기업소유주", "지배주주"))):
+                nip_nm = v
             elif not np.isfinite(ni) and (aid in NI_ID or nm.startswith(("당기순이익", "분기순이익", "반기순이익"))):
                 ni = v
             continue
@@ -78,6 +86,8 @@ def _pick(rows, qn=4):
         elif not np.isfinite(itg) and (aid in INT_ID or nm.startswith("무형자산의취득")):
             itg = abs(v)
     capex = (0 if not np.isfinite(ppe) else ppe) + (0 if not np.isfinite(itg) else itg)
+    if not np.isfinite(nip):
+        nip = nip_nm
     return {"ocf": ocf, "capex": capex, "v": VER,
             "nip": nip if np.isfinite(nip) else ni, "eqp": eqp if np.isfinite(eqp) else eq}
 

@@ -232,6 +232,9 @@ def series(raw, code, cf=None):
         for k in ("fcf", "nip"):
             v = _cum_ttm(cf, y, qn, k)
             r[k] = v / 1e8 if np.isfinite(v) else np.nan
+        # 안전장치: 지배주주 순이익이 연결 순이익보다 30% 넘게 크면 잘못 읽은 값일 가능성 → 연결 값 사용
+        if np.isfinite(r["nip"]) and np.isfinite(r["ni"]) and r["ni"] > 0 and r["nip"] > r["ni"] * 1.3:
+            r["nip"] = np.nan
         v = (cf or {}).get((y, qn), {}).get("eqp", np.nan)
         r["eqp"] = v / 1e8 if np.isfinite(v) else np.nan
         rows.append(r)
