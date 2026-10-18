@@ -1,11 +1,12 @@
-"""미국 시장: SEC EDGAR 재무(XBRL companyfacts) + yfinance 시세 → site/data/us.json (국내 mf.json과 같은 구조)
+"""미국 시장: Yahoo Finance 재무·시세 + 나스닥 종목 목록 → site/data/us.json (국내 mf.json과 같은 구조)
 
-- 대상: NYSE·나스닥 상장사 중 금융(SIC 6000~6799, 리츠·스팩 포함)·유틸리티(SIC 4900~4949) 제외
-- 재무: 회사별 companyfacts 1번 요청으로 전 기간을 받음. 손익·현금흐름은 연초부터 누적 값으로
-  최근 4분기 합(TTM) = 직전 연간 + 올해 누적 − 작년 같은 기간 누적 (연간 보고서면 그대로)
-  NetIncomeLoss = 지배주주 순이익, StockholdersEquity = 지배주주 자본 (미국 회계 기준 정의)
-- 공시 시점: 그 분기 값이 처음 제출된 날(filed) 다음 날부터 사용 → 미래 정보가 섞이지 않음
-- 시가총액: 공시의 발행주식수 × 종가. 주식분할은 yfinance 분할 기록으로 맞춤
+SEC EDGAR는 GitHub Actions 서버(클라우드 IP)의 접속을 막아서 쓸 수 없음 → Yahoo 재무(fundamentals-timeseries) 사용
+- 대상: 나스닥 종목 목록 API의 NYSE·나스닥 상장사 중 금융·부동산·유틸리티 섹터 제외, 재무가 달러 표시인 회사
+- 재무: 종목당 요청 1번으로 연간 4년 + 최근 5분기. 손익·현금흐름은 최근 4분기 합(TTM), 4분기가 안 모이면 직전 연간 값
+  NetIncomeCommonStockholders = 지배주주(보통주) 순이익, StockholdersEquity = 지배주주 자본
+- 공시 시점(추정): 분기 말 + 45일, 회계연도 말 + 80일부터 사용 (미국 10-Q·10-K 제출 기한 기준)
+- 그래서 과거 재무는 4년 전 회계연도부터 → 미국 백테스트는 2023년 무렵부터 가능
+- 시가총액: 재무의 발행주식수 × 종가 (주식분할 보정)
 - 금액 단위는 백만 달러, 시세는 달러
 """
 import os, re, sys, json, time, gzip, pickle, threading
@@ -18,45 +19,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = os.path.join(ROOT, "cache")
 OUT = os.path.join(ROOT, "site", "data", "us.json")
-UA = os.environ.get("SEC_UA", "").strip() or "magic-screener kyuiklee@users.noreply.github.com"
-YEARS = 7
 HIST_DAYS = 1300
-
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+      "Accept": "application/json, text/plain, */*"}
 _s = requests.Session()
-_s.headers.update({"User-Agent": UA, "Accept-Encoding": "gzip, deflate"})
-
-
-class Rate:
-    """SEC 권장: 초당 10회 이하"""
-    def __init__(self, per_sec=8):
-        self.gap, self.t, self.lock = 1.0 / per_sec, 0.0, threading.Lock()
-
-    def wait(self):
-        with self.lock:
-            now = time.time()
-            if now < self.t:
-                time.sleep(self.t - now)
-            self.t = max(now, self.t) + self.gap
-
-
-RATE = Rate()
-
-
-def sec_get(url, tries=4):
-    for a in range(tries):
-        RATE.wait()
-        try:
-            r = _s.get(url, timeout=60)
-            if r.status_code == 200:
-                return r.json()
-            if r.status_code == 404:
-                return None
-            if r.status_code in (403, 429):
-                time.sleep(5 + a * 10)
-                continue
-        except Exception:
-            time.sleep(2 + a * 3)
-    return None
+_s.headers.update(UA)
+EXCL_SECTOR = {"Finance", "Real Estate", "Utilities"}
+LAG_Q, LAG_A = 45, 80
 
 
 def _load(name, default):
@@ -76,163 +45,146 @@ def _save(name, obj):
         pickle.dump(obj, f)
 
 
+def _num(x):
+    try:
+        return float(str(x).replace("$", "").replace(",", ""))
+    except Exception:
+        return np.nan
+
+
 # ---------------- 종목 목록 ----------------
-def universe():
-    j = sec_get("https://www.sec.gov/files/company_tickers_exchange.json")
-    if not j:
-        raise RuntimeError("SEC 종목 목록을 받지 못했습니다 (User-Agent 차단 여부 확인)")
-    f = j["fields"]
-    df = pd.DataFrame(j["data"], columns=f)
-    df = df[df["exchange"].isin(["NYSE", "Nasdaq"]) & df["ticker"].notna()]
-    df = df[~df["ticker"].str.contains(r"[\^/]", regex=True)]
-    df = df.drop_duplicates("cik", keep="first")          # 한 회사에 여러 종목이면 첫 번째(대표)
-    df["mkt"] = np.where(df["exchange"] == "Nasdaq", "Q", "K")
-    return df[["cik", "ticker", "name", "mkt"]].reset_index(drop=True)
-
-
-def excluded_sic(sic):
-    try:
-        s = int(sic)
-    except (TypeError, ValueError):
-        return False
-    return 6000 <= s <= 6799 or 4900 <= s <= 4949
-
-
-# ---------------- 재무 파싱 ----------------
-FLOW = {   # 키: (분류, 개념 후보)
-    "ebit": ["OperatingIncomeLoss"],
-    "ni": ["ProfitLoss", "NetIncomeLoss"],
-    "nip": ["NetIncomeLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"],
-    "ocf": ["NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"],
-    "capex": ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"],
-    "capi": ["PaymentsToAcquireIntangibleAssets"],
-}
-INST = {
-    "ta": ["Assets"],
-    "tl": ["Liabilities"],
-    "ca": ["AssetsCurrent"],
-    "cl": ["LiabilitiesCurrent"],
-    "eqp": ["StockholdersEquity"],
-    "eq": ["StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest", "StockholdersEquity"],
-}
-FORMS = ("10-K", "10-Q", "10-K/A", "10-Q/A", "10-KT")
-D = pd.Timedelta
-
-
-def _facts(j, name, tax="us-gaap", unit="USD"):
-    try:
-        return j["facts"][tax][name]["units"][unit]
-    except (KeyError, TypeError):
-        return []
-
-
-def _flow_map(j, names):
-    """(start, end) → (값, 처음 제출일). 첫 번째로 데이터가 있는 개념을 씀"""
-    for nm in names:
-        m = {}
-        for x in _facts(j, nm):
-            if x.get("form") not in FORMS or "start" not in x:
-                continue
-            k = (x["start"], x["end"])
-            if k not in m or x["filed"] < m[k][1]:
-                m[k] = (float(x["val"]), x["filed"])
-        if m:
-            return m
-    return {}
-
-
-def _inst_map(j, names, unit="USD", tax="us-gaap"):
-    for nm in names:
-        m = {}
-        for x in _facts(j, nm, tax, unit):
-            if x.get("form") not in FORMS or "start" in x:
-                continue
-            k = x["end"]
-            if k not in m or x["filed"] < m[k][1]:
-                m[k] = (float(x["val"]), x["filed"])
-        if m:
-            return m
-    return {}
-
-
-def _ttm(m, end):
-    """연초부터 누적 값들로 end 시점의 최근 12개월 합. 없으면 None"""
-    if not m:
-        return None
-    E = pd.Timestamp(end)
-    best = None
-    for (s, e), (v, f) in m.items():
-        if e != end:
-            continue
-        days = (E - pd.Timestamp(s)).days
-        if 350 <= days <= 380:
-            return v                                     # 연간 값 그대로
-        if 80 <= days <= 300 and (best is None or days > best[0]):
-            best = (days, s, v)                          # 가장 긴 누적(YTD)
-    if best is None:
-        return None
-    days, s, ytd = best
-    S = pd.Timestamp(s)
-    ann = prev = None
-    for (s2, e2), (v2, f2) in m.items():
-        S2, E2 = pd.Timestamp(s2), pd.Timestamp(e2)
-        if ann is None and abs((E2 - (S - D(days=1))).days) <= 7 and 350 <= (E2 - S2).days <= 380:
-            ann = v2
-        if prev is None and abs((E2 - (E - D(days=365))).days) <= 7 and abs((E2 - S2).days - days) <= 10:
-            prev = v2
-    if ann is None or prev is None:
-        return None
-    return ann + ytd - prev
-
-
-def parse(j):
-    """companyfacts → 분기별 행 [{avail, ql, ebit, ni, nip, fcf, ta, tl, ca, cl, eq, eqp, sh}] (백만 달러, 주식 수는 그대로)"""
-    fl = {k: _flow_map(j, v) for k, v in FLOW.items()}
-    it = {k: _inst_map(j, v) for k, v in INST.items()}
-    sh_dei = _inst_map(j, ["EntityCommonStockSharesOutstanding"], unit="shares", tax="dei")
-    sh_w = _flow_map_shares(j)
-    # 분기 말(end) 목록과 그 분기 보고서가 처음 제출된 날
-    ends = {}
-    cut = (pd.Timestamp.now() - pd.DateOffset(years=YEARS)).strftime("%Y-%m-%d")
-    meta = {}
-    for nm in ("Assets", "OperatingIncomeLoss", "NetIncomeLoss"):
-        for x in _facts(j, nm):
-            if x.get("form") not in FORMS or x["end"] < cut:
-                continue
-            e = x["end"]
-            if e not in ends or x["filed"] < ends[e]:
-                ends[e] = x["filed"]
-                meta[e] = (x.get("fy"), x.get("fp"), x.get("accn"))
+def universe(min_cap=100e6):
     rows = []
-    for e in sorted(ends):
-        r = {"end": e, "avail": pd.Timestamp(ends[e]) + D(days=1)}
-        fy, fp, accn = meta[e]
-        r["ql"] = f"{int(fy) % 100:02d}.{fp}" if fy and fp else e[2:7]
-        for k in ("ebit", "ni", "nip", "ocf", "capex", "capi"):
-            v = _ttm(fl[k], e)
-            r[k] = v / 1e6 if v is not None else np.nan
-        for k in it:
-            v = it[k].get(e)
-            r[k] = v[0] / 1e6 if v else np.nan
-        if not np.isfinite(r["tl"]) and np.isfinite(r["ta"]):        # 부채총계를 안 적는 회사가 많음
-            base = r["eq"] if np.isfinite(r["eq"]) else r["eqp"]
-            r["tl"] = r["ta"] - base if np.isfinite(base) else np.nan
-        cap = (r["capex"] if np.isfinite(r["capex"]) else 0) + (r["capi"] if np.isfinite(r["capi"]) else 0)
-        r["fcf"] = r["ocf"] - cap if np.isfinite(r["ocf"]) else np.nan
-        # 발행주식수: 그 공시 표지의 주식 수 → 없으면 희석 가중평균
-        sd = sorted((f, v) for (ee, (v, f)) in sh_dei.items() if f >= ends[e] and 0 <= (pd.Timestamp(ee) - pd.Timestamp(e)).days < 150)
-        sw = sh_w.get(e)
-        sh = sd[0][1] if sd and sd[0][0] <= (pd.Timestamp(ends[e]) + D(days=10)).strftime("%Y-%m-%d") else np.nan
-        if sw and (not np.isfinite(sh) or sh < sw * 0.5):          # 여러 종류 주식 중 한 종류만 적힌 경우
-            sh = sw
-        r["sh"] = sh
+    for ex, mk in (("nasdaq", "Q"), ("nyse", "K")):
+        for a in range(3):
+            try:
+                r = _s.get(f"https://api.nasdaq.com/api/screener/stocks?tableonly=true&download=true&exchange={ex}", timeout=60)
+                data = r.json()["data"]["rows"]
+                break
+            except Exception as e:
+                print(f"  나스닥 목록 {ex} 재시도: {e}")
+                time.sleep(5)
+                data = []
+        for x in data:
+            rows.append({"ticker": x.get("symbol", "").strip(), "name": x.get("name", ""), "mkt": mk,
+                         "sector": x.get("sector", ""), "cap": _num(x.get("marketCap"))})
+    df = pd.DataFrame(rows)
+    if df.empty:
+        cached = _load("us_univ.pkl.gz", None)
+        if cached is None:
+            raise RuntimeError("미국 종목 목록을 받지 못했습니다")
+        print("  미국 종목 목록: 지난번 목록 사용")
+        return cached
+    n0 = len(df)
+    df = df[df["ticker"].str.fullmatch(r"[A-Z]{1,5}(/[A-Z])?")]               # 우선주·워런트·유닛 제외
+    df = df[~df["name"].str.contains(r"Warrant|Right|Unit|Preferred|Depositary Shares? Representing|Notes? due", case=False, regex=True)]
+    df = df[~df["sector"].isin(EXCL_SECTOR) & df["sector"].ne("")]
+    df = df[df["cap"] >= min_cap]
+    df["ticker"] = df["ticker"].str.replace("/", "-")                        # BRK/B → BRK-B (Yahoo 표기)
+    df["name"] = df["name"].str.replace(r"\s+(Common Stock|Class [A-Z] Common Stock|Ordinary Shares|Common Shares).*$", "", regex=True)
+    df = df.drop_duplicates("ticker").reset_index(drop=True)
+    print(f"미국 종목: 전체 {n0} → 금융·부동산·유틸리티·소형(시총 {min_cap / 1e6:.0f}M 미만) 제외 {len(df)}")
+    _save("us_univ.pkl.gz", df)
+    return df
+
+
+# ---------------- 재무 (Yahoo fundamentals-timeseries) ----------------
+TYPES = ["OperatingIncome", "NetIncomeCommonStockholders", "NetIncome", "NetIncomeIncludingNoncontrollingInterests",
+         "TotalAssets", "CurrentAssets", "CurrentLiabilities", "TotalLiabilitiesNetMinorityInterest",
+         "StockholdersEquity", "TotalEquityGrossMinorityInterest", "OperatingCashFlow", "CapitalExpenditure",
+         "FreeCashFlow", "OrdinarySharesNumber", "ShareIssued"]
+FLOWS = {"ebit": ["OperatingIncome"], "ni": ["NetIncomeIncludingNoncontrollingInterests", "NetIncome"],
+         "nip": ["NetIncomeCommonStockholders", "NetIncome"], "ocf": ["OperatingCashFlow"],
+         "capex": ["CapitalExpenditure"], "fcfy": ["FreeCashFlow"]}
+STOCKS = {"ta": ["TotalAssets"], "tl": ["TotalLiabilitiesNetMinorityInterest"], "ca": ["CurrentAssets"],
+          "cl": ["CurrentLiabilities"], "eqp": ["StockholdersEquity"], "eq": ["TotalEquityGrossMinorityInterest", "StockholdersEquity"],
+          "sh": ["OrdinarySharesNumber", "ShareIssued"]}
+
+
+def fetch_ts(t):
+    tp = ",".join(p + x for p in ("annual", "quarterly") for x in TYPES)
+    url = (f"https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{t}"
+           f"?symbol={t}&type={tp}&period1=1420070400&period2={int(time.time())}")
+    for a in range(4):
+        try:
+            r = _s.get(url, timeout=40)
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code == 404:
+                return None
+            if r.status_code == 429:
+                time.sleep(20 * (a + 1))
+                continue
+        except Exception:
+            pass
+        time.sleep(2 + a * 3)
+    return "err"
+
+
+def parse_ts(j):
+    """→ DataFrame(index=사용 시작일, ql, ebit, ni, nip, fcf, ta, tl, ca, cl, eq, eqp, sh) 금액 백만 달러. 달러가 아니면 None"""
+    res = (((j or {}).get("timeseries") or {}).get("result")) or []
+    A, Q = {}, {}                                # 개념 → {날짜: 값}
+    for x in res:
+        k = (x.get("meta", {}).get("type") or [""])[0]
+        vals = x.get(k) or []
+        freq, name = ("annual", k[6:]) if k.startswith("annual") else ("quarterly", k[9:])
+        for v in vals:
+            if not v:
+                continue
+            cur = v.get("currencyCode")
+            if cur and cur != "USD" and name != "OrdinarySharesNumber" and name != "ShareIssued":
+                return None
+            raw = (v.get("reportedValue") or {}).get("raw")
+            if raw is None:
+                continue
+            (A if freq == "annual" else Q).setdefault(name, {})[v["asOfDate"]] = float(raw)
+
+    def pick(src, names, d):
+        for n in names:
+            if d in src.get(n, {}):
+                return src[n][d]
+        return np.nan
+
+    a_dates = sorted({d for n in ("TotalAssets", "OperatingIncome") for d in A.get(n, {})})
+    q_dates = sorted({d for n in ("TotalAssets", "OperatingIncome") for d in Q.get(n, {})})
+    rows = []
+    for d in a_dates:
+        r = {"end": d, "avail": pd.Timestamp(d) + pd.Timedelta(days=LAG_A), "ql": f"{d[2:4]}.FY"}
+        for k, ns in FLOWS.items():
+            r[k] = pick(A, ns, d)
+        for k, ns in STOCKS.items():
+            r[k] = pick(A, ns, d)
+        rows.append(r)
+    for i, d in enumerate(q_dates):
+        if d in a_dates:                         # 회계연도 말 분기는 연간 보고서(+80일)로 대신
+            continue
+        D_ = pd.Timestamp(d)
+        r = {"end": d, "avail": D_ + pd.Timedelta(days=LAG_Q), "ql": f"{d[2:4]}.{(D_.month - 1) // 3 + 1}Q"}
+        win = [x for x in q_dates if pd.Timestamp(x) <= D_ and (D_ - pd.Timestamp(x)).days < 350]
+        prev_a = [x for x in a_dates if x <= d]
+        for k, ns in FLOWS.items():
+            v = [pick(Q, ns, x) for x in win]
+            if len(win) == 4 and all(np.isfinite(v)):
+                r[k] = sum(v)                    # 최근 4분기 합
+            elif prev_a and (D_ - pd.Timestamp(prev_a[-1])).days < 370:
+                r[k] = pick(A, ns, prev_a[-1])   # 4분기가 안 모이면 직전 연간 값
+            else:
+                r[k] = np.nan
+        for k, ns in STOCKS.items():
+            r[k] = pick(Q, ns, d)
         rows.append(r)
     if not rows:
         return None
-    df = pd.DataFrame(rows).sort_values(["avail", "end"])
+    df = pd.DataFrame(rows)
+    for k in ("ebit", "ni", "nip", "ocf", "capex", "fcfy", "ta", "tl", "ca", "cl", "eq", "eqp"):
+        df[k] = df[k] / 1e6
+    df["fcf"] = np.where(np.isfinite(df["fcfy"]), df["fcfy"],
+                         df["ocf"] + np.where(np.isfinite(df["capex"]), df["capex"], 0))
+    df = df.sort_values(["avail", "end"])
     out, top = [], ""
     for r in df.to_dict("records"):
-        if r["end"] < top:                            # 늦게 낸 옛 분기 보고서는 무시
+        if r["end"] < top:
             continue
         top = r["end"]
         out.append(r)
@@ -240,76 +192,42 @@ def parse(j):
     return df[["ql", "ebit", "ni", "nip", "fcf", "ta", "tl", "ca", "cl", "eq", "eqp", "sh"]]
 
 
-def _flow_map_shares(j):
-    """희석 가중평균 주식 수: end → 값 (가장 짧은 기간 = 그 분기)"""
-    m = {}
-    for x in _facts(j, "WeightedAverageNumberOfDilutedSharesOutstanding", unit="shares"):
-        if x.get("form") not in FORMS or "start" not in x:
-            continue
-        d = (pd.Timestamp(x["end"]) - pd.Timestamp(x["start"])).days
-        e = x["end"]
-        if e not in m or d < m[e][1]:
-            m[e] = (float(x["val"]), d)
-    return {e: v for e, (v, d) in m.items()}
-
-
-# ---------------- SEC 수집 (캐시) ----------------
 def load_fund(univ, minutes):
-    sub = _load("us_sub.pkl.gz", {})          # cik → {sic, at}
-    fac = _load("us_facts.pkl.gz", {})        # cik → {df, at}
+    fac = _load("us_fund.pkl.gz", {})            # 티커 → {df, at}
     now = time.time()
-    ciks = list(univ["cik"])
-    need_sub = [c for c in ciks if c not in sub or now - sub[c]["at"] > 60 * 86400]
-    t0 = time.time()
-    print(f"SEC 업종 조회 {len(need_sub)}건")
+    tick = list(univ["ticker"])
+    todo = sorted([t for t in tick if t not in fac or now - fac[t]["at"] > 3 * 86400],
+                  key=lambda t: fac.get(t, {}).get("at", 0))
+    print(f"미국 재무 요청 {len(todo)}건 (3일마다 새로), 최대 {minutes}분")
 
-    def get_sub(c):
-        j = sec_get(f"https://data.sec.gov/submissions/CIK{int(c):010d}.json")
-        return c, (j or {}).get("sic")
-
-    with ThreadPoolExecutor(8) as ex:
-        for i, (c, sic) in enumerate(ex.map(get_sub, need_sub), 1):
-            sub[c] = {"sic": sic, "at": now}
-            if i % 1000 == 0:
-                print(f"  업종 {i}/{len(need_sub)} ({time.time() - t0:.0f}초)")
-                _save("us_sub.pkl.gz", sub)
-    _save("us_sub.pkl.gz", sub)
-    keep = [c for c in ciks if not excluded_sic(sub.get(c, {}).get("sic"))]
-    print(f"금융·유틸리티 제외 후 {len(keep)}/{len(ciks)}개 ({time.time() - t0:.0f}초)")
-
-    # 재무: 오래된 것부터 정해진 시간만큼 새로 받음 (처음엔 전부, 이후엔 하루 한 번 정도)
-    todo = sorted([c for c in keep if c not in fac or now - fac[c]["at"] > 20 * 3600],
-                  key=lambda c: fac.get(c, {}).get("at", 0))
-    print(f"SEC 재무 요청 {len(todo)}건, 최대 {minutes}분")
-
-    def get_fac(c):
-        j = sec_get(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{int(c):010d}.json")
-        if j is None:
-            return c, None
+    def job(t):
+        time.sleep(0.3)
+        j = fetch_ts(t)
+        if j == "err":
+            return t, "err"
         try:
-            return c, parse(j)
+            return t, parse_ts(j)
         except Exception as e:
-            return c, f"err {e}"
+            return t, f"err {e}"
 
-    t1, done, errs = time.time(), 0, 0
-    chunk = 80
-    with ThreadPoolExecutor(8) as ex:
+    t0, done, errs, chunk = time.time(), 0, 0, 100
+    with ThreadPoolExecutor(4) as ex:
         for i in range(0, len(todo), chunk):
-            if time.time() - t1 > minutes * 60:
+            if time.time() - t0 > minutes * 60:
                 print(f"  시간 한도 — 나머지 {len(todo) - i}건은 다음 실행 때")
                 break
-            for c, df in ex.map(get_fac, todo[i:i + chunk]):
+            for t, df in ex.map(job, todo[i:i + chunk]):
                 if isinstance(df, str):
                     errs += 1
-                    df = None
-                fac[c] = {"df": df, "at": now}
+                    continue                      # 실패는 다음 실행 때 다시
+                fac[t] = {"df": df, "at": now}
                 done += 1
-            if (i // chunk) % 10 == 9:
-                print(f"  재무 {done}/{len(todo)} ({time.time() - t1:.0f}초)")
-                _save("us_facts.pkl.gz", fac)
-    _save("us_facts.pkl.gz", fac)
-    ok = {c: fac[c]["df"] for c in keep if c in fac and fac[c]["df"] is not None and len(fac[c]["df"])}
-    print(f"SEC 재무 이번 {done}건 (파싱 오류 {errs}), 사용 가능 {len(ok)}개 ({time.time() - t1:.0f}초)")
+            if (i // chunk) % 5 == 4:
+                print(f"  재무 {i + chunk}/{len(todo)} ({time.time() - t0:.0f}초, 실패 {errs})")
+                _save("us_fund.pkl.gz", fac)
+    _save("us_fund.pkl.gz", fac)
+    ok = {t: fac[t]["df"] for t in tick if t in fac and fac[t]["df"] is not None and len(fac[t]["df"])}
+    print(f"미국 재무 이번 {done}건 (실패 {errs}), 사용 가능 {len(ok)}개 ({time.time() - t0:.0f}초)")
     return ok
 
 
@@ -383,20 +301,14 @@ def rnd(x, n=1):
 def main():
     t0 = time.time()
     now = pd.Timestamp.now(tz="Asia/Seoul")
-    print(f"미국 실행 {now:%Y-%m-%d %H:%M} KST, SEC User-Agent: {UA}")
+    print(f"미국 실행 {now:%Y-%m-%d %H:%M} KST")
     univ = universe()
-    print(f"NYSE·나스닥 {len(univ)}개 회사")
     fund = load_fund(univ, float(os.environ.get("US_MINUTES", "40")))
-    meta = univ.set_index("cik")
-    # 시세는 재무가 있고 자산 5천만 달러 이상인 회사만
-    tick = {}
-    for c, df in fund.items():
-        ta = df["ta"].dropna()
-        if len(ta) and ta.iloc[-1] >= 50:
-            tick[meta.loc[c, "ticker"]] = c
+    meta = univ.set_index("ticker")
+    tick = {t: t for t, df in fund.items() if len(df["ta"].dropna()) and df["ta"].dropna().iloc[-1] >= 50}
     hist = load_prices(sorted(tick))
     idx = index_prices()
-    if idx.get("K") is None or len(hist) < 500:
+    if idx.get("K") is None or len(hist) < 300:
         raise SystemExit(f"미국 시세가 부족합니다 (종목 {len(hist)}, 지수 {'있음' if idx.get('K') is not None else '없음'})")
     cal = pd.DatetimeIndex(pd.to_datetime(idx["K"].index).normalize()).unique().sort_values()
     cal = cal[cal >= cal.max() - pd.Timedelta(days=int(HIST_DAYS * 1.45))]
@@ -448,7 +360,7 @@ def main():
         last_sh = next((x[-1] for x in reversed(fl) if x[-1]), None)
         if not last_sh:
             continue
-        stocks.append([t, str(meta.loc[c, "name"]), meta.loc[c, "mkt"], int(last_sh), s0,
+        stocks.append([t, str(meta.loc[t, "name"]), meta.loc[t, "mkt"], int(last_sh), s0,
                        [rnd(x, 2) for x in px], [rnd(x, 1) for x in am], fl, f["ql"].iloc[-1]])
     out = {
         "region": "US", "cap_div": 1e6, "currency": "USD",
@@ -459,7 +371,7 @@ def main():
         "idx": ix,
         "fields": ["code", "name", "mkt", "shares", "s0", "px", "amt20", "f", "ql"],
         "f_fields": ["mi", "ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp", "sh"],
-        "note": "미국: 금액 백만 달러, 시세 달러, mkt K=NYSE Q=나스닥, idx K=S&P500 Q=나스닥종합, sh=분할 보정 발행주식수",
+        "note": "미국(Yahoo 재무): 금액 백만 달러, 시세 달러, mkt K=NYSE Q=나스닥, idx K=S&P500 Q=나스닥종합, sh=분할 보정 발행주식수, 재무 사용 시점 추정(분기+45일, 연간+80일)",
         "stocks": stocks,
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
