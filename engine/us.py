@@ -358,7 +358,8 @@ def main():
                       + [rnd(sh, 0), rnd(row["rev"], 0)])
         if not fl:
             continue
-        last_sh = next((x[-1] for x in reversed(fl) if x[-1]), None)
+        SH_I = 10                                      # [mi, ebit, ni, ta, tl, ca, cl, fcf, nip, eqp, sh, rev]
+        last_sh = next((x[SH_I] for x in reversed(fl) if x[SH_I]), None)
         if not last_sh:
             continue
         stocks.append([t, str(meta.loc[t, "name"]), meta.loc[t, "mkt"], int(last_sh), s0,
