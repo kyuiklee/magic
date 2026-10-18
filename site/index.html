@@ -116,6 +116,27 @@ svg.eq{width:100%;height:auto;display:block;margin-top:14px}
 .howto ol,.howto ul{padding-left:20px}
 .formula{background:var(--track);border-radius:10px;padding:10px 12px;margin:6px 0;font-size:13.5px}
 
+input[type=range]{width:100%;accent-color:var(--acc)}
+.ctl-row output{font-weight:700}
+.pf-sum{background:var(--surface);border-radius:14px;padding:16px 14px}
+.pf-item .detail{padding-left:14px}
+.pf-row,.item>button.pf-row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:100%;text-align:left;padding:12px 14px;align-items:center}
+.pf-row .sub{font-size:12.5px;color:var(--sub)}
+.pf-row .rt{text-align:right;font-weight:720;font-size:16px}
+.pf-row .rt small{display:block;font-size:12px;font-weight:500;color:var(--sub)}
+.tagc{display:inline-block;font-size:11px;font-weight:700;padding:0 6px;border-radius:5px;margin-left:5px;vertical-align:1px}
+.tagc.due{background:var(--warn-soft);color:var(--warn)} .tagc.out{background:var(--track);color:var(--sub)} .tagc.in{background:var(--acc-soft);color:var(--acc)}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:6px}
+.grid3 label{font-size:12px;color:var(--sub);display:block}
+.grid3 .inp{padding:7px 8px;font-size:14px;margin-top:2px}
+.btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center}
+.btn{padding:8px 12px;border-radius:9px;background:var(--track);font-weight:650;font-size:13.5px;white-space:nowrap;line-height:1.3}
+.btn.pri{background:var(--ink);color:var(--bg)}
+.btn.warn{color:var(--up)}
+textarea.inp{min-height:70px;font-size:12px;margin-top:8px}
+.toast{position:fixed;left:50%;bottom:calc(80px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);
+  padding:9px 14px;border-radius:10px;font-size:13.5px;font-weight:600;z-index:9;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
+.toast.on{opacity:1}
 nav{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);
   padding:6px 0 calc(6px + env(safe-area-inset-bottom));z-index:5}
 nav .wrap{display:flex}
@@ -132,6 +153,7 @@ nav button[aria-current=page]{color:var(--ink)}
     <div class="idx" id="idx"></div>
   </header>
   <div id="warns"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <!-- 공통 조건 -->
   <div class="ctl" id="filters">
@@ -170,6 +192,27 @@ nav button[aria-current=page]{color:var(--ink)}
     <p class="note"><span class="new">NEW</span>는 지난달 말 목록에 없던 종목입니다. 재무는 DART 공시 다음 날부터 반영됩니다. 조건 검색 결과이며 매수 권유가 아닙니다.</p>
   </section>
 
+  <!-- ===== 포트폴리오 ===== -->
+  <section class="view" id="v-pf" aria-label="내 포트폴리오">
+    <div class="pf-sum" id="pfSum"></div>
+    <h2 class="sec-title">보유 종목<span class="mute" id="pfCnt" style="font-size:13px;font-weight:600;margin-left:6px"></span></h2>
+    <div class="list" id="pfList"></div>
+    <details class="grp" id="pfAddBox"><summary>종목 직접 추가</summary>
+      <div class="ctl-row"><label for="pfFind">종목명 또는 코드</label></div>
+      <input class="inp" id="pfFind" list="pfNames" placeholder="예: 삼성전자 또는 005930" autocomplete="off">
+      <datalist id="pfNames"></datalist>
+      <div class="btns"><button class="btn pri" id="pfAddBtn">담기</button></div>
+    </details>
+    <h2 class="sec-title" id="pfSoldT">매도 기록</h2>
+    <div class="list" id="pfSold"></div>
+    <details class="grp"><summary>백업 · 복원</summary>
+      <p class="note">포트폴리오는 이 기기 브라우저에만 저장됩니다. 다른 기기로 옮기거나 앱 데이터를 지우기 전에 백업 글자를 복사해 두세요.</p>
+      <div class="btns"><button class="btn" id="pfExp">백업 글자 만들기</button><button class="btn" id="pfImp">붙여넣은 글자로 복원</button></div>
+      <textarea class="inp" id="pfTxt" aria-label="백업 글자" placeholder="백업 글자"></textarea>
+    </details>
+    <p class="note">현재가는 가장 최근 거래일 종가입니다. 교체 시기는 매수일 + 보유 기간(백테스트 탭 슬라이더)이고, 순위는 지금 고른 스크리닝 방법과 종목 범위 기준입니다. 코스피 대비는 매수일이 속한 달 말 지수와 비교한 근사치입니다.</p>
+  </section>
+
   <!-- ===== 백테스트 ===== -->
   <section class="view" id="v-bt" aria-label="백테스트">
     <div class="ctl">
@@ -177,10 +220,9 @@ nav button[aria-current=page]{color:var(--ink)}
       <div class="seg" role="group" aria-label="백테스트 시작" id="bFrom">
         <button data-v="all">처음부터</button><button data-v="2022">2022</button><button data-v="2023">2023</button><button data-v="2024">2024</button><button data-v="2025">2025</button>
       </div>
-      <div class="ctl-row"><span>보유 기간</span><small>책은 1년</small></div>
-      <div class="seg" role="group" aria-label="보유 기간" id="bH">
-        <button data-v="3">3개월</button><button data-v="6">6개월</button><button data-v="12">1년</button>
-      </div>
+      <div class="ctl-row"><label for="bH">보유 기간</label><output id="bHv"></output></div>
+      <input type="range" id="bH" min="1" max="36" step="1" aria-describedby="bHhint">
+      <div class="ctl-row" style="margin:2px 0 0"><small id="bHhint">1~36개월 · 책은 12개월 · 포트폴리오 교체 시기에도 쓰입니다</small></div>
       <div class="ctl-row"><span>매매 비용 (왕복)</span></div>
       <div class="seg" role="group" aria-label="비용" id="bFee">
         <button data-v="0">0%</button><button data-v="0.3">0.3%</button><button data-v="0.6">0.6%</button>
@@ -232,6 +274,7 @@ nav button[aria-current=page]{color:var(--ink)}
 
 <nav aria-label="메뉴"><div class="wrap">
   <button data-v="rank" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>순위</button>
+  <button data-v="pf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16v11H4zM9 8V5h6v3M4 13h16"/></svg>포트폴리오</button>
   <button data-v="bt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16M5 15l4-5 4 3 6-7"/></svg>백테스트</button>
   <button data-v="how"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5zM9 12h6M9 16h6M9 8h3"/></svg>방법</button>
 </div></nav>
@@ -336,6 +379,7 @@ function drawHeader(){
 }
 function fcfCover(m){let a=0,b=0;for(const o of ST){const fi=o.fi[m];if(fi<0||pxAt(o,m)==null)continue;a++;if(o.f[fi].fcf!=null)b++;}return [b,a];}
 const selV=()=>VK.filter(k=>S.sel.includes(k));
+const stratName=()=>S.mode==='M'?`마법공식${S.mf==='B'?'(간편)':''}`:selV().map(k=>MODES[k].t).join('+');
 const useFCF=()=>S.mode==='V'&&S.sel.includes('FCF');
 function drawMode(){
   $('#fMf').style.display=S.mode==='M'?'':'none';
@@ -388,15 +432,110 @@ function drawRank(){
       ${per?`<dt>종목당 금액</dt><dd>${fmt(Math.round(per/1e4))}만 원 ≈ ${fmt(Math.floor(per/r.p))}주</dd>`:''}
       <dt>종목코드</dt><dd>${o.code}</dd></dl>
       <a class="go" href="https://m.stock.naver.com/domestic/stock/${o.code}/total" target="_blank" rel="noopener">네이버 증권 열기</a>
+      <button class="go" data-add="${o.code}" style="margin-left:6px">포트폴리오에 담기</button>
     </div></div>`;}).join('');
   const nNew=arr.filter(r=>prev.size&&!prev.has(r.o.code)).length;
   $('#guide').innerHTML=`<b>분할 매수</b> · 책 방식대로라면 이 ${arr.length}종목을 한 번에 사지 않고 2~3개월마다 5~7종목씩 나눠 삽니다. 이번 달 새로 들어온 종목 ${nNew}개.
     <div class="ctl-row"><label for="money">투자금 (원)</label><small>종목별 금액·주수 계산</small></div>
-    <input class="inp" id="money" inputmode="numeric" placeholder="예: 30000000" value="${money||''}">`;
+    <input class="inp" id="money" inputmode="numeric" placeholder="예: 30000000" value="${money||''}">
+    <div class="btns"><button class="btn" id="addAll">이 ${arr.length}종목 모두 포트폴리오에 담기${money?' (투자금 기준 주수)':''}</button></div>`;
+  $('#addAll').onclick=()=>{let n=0;for(const r of arr){if(pfAdd(r.o.code,{q:money?Math.max(1,Math.floor(per/r.p)):1,silent:true}))n++;}
+    toast(n?`${n}종목을 담았습니다`:'이미 모두 담겨 있습니다');};
   $('#money').onchange=e=>{store.set('money',+e.target.value.replace(/[^0-9]/g,'')||0);drawRank();};
 }
-$('#picks').addEventListener('click',e=>{const b=e.target.closest('.item>button');if(!b)return;
+$('#picks').addEventListener('click',e=>{const ad=e.target.closest('[data-add]');if(ad){pfAdd(ad.dataset.add);return;}
+  const b=e.target.closest('.item>button');if(!b)return;
   const it=b.parentElement,o=!it.classList.contains('open');it.classList.toggle('open',o);b.setAttribute('aria-expanded',o);});
+
+/* ---------- 포트폴리오 ---------- */
+let PF=store.get('pf',{h:[],sold:[]}); if(!PF.h)PF={h:[],sold:[]};
+let pfDirty=true, pfOpen=null;
+const pfSave=()=>store.set('pf',PF);
+function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('on'),1800);}
+const byCode=()=>{if(!byCode.m){byCode.m=new Map(ST.map(o=>[o.code,o]));}return byCode.m;};
+function lastPx(o){for(let m=T-1;m>=o.s0;m--){const v=pxAt(o,m);if(v!=null)return v;}return null;}
+function monthOf(d){for(let m=0;m<T;m++)if(D.months[m]>=d)return m;return T-1;}
+function addMonths(d,n){const t=new Date(d+'T00:00:00');t.setMonth(t.getMonth()+n);return t.toISOString().slice(0,10);}
+function pfAdd(code,{q=1,silent=false}={}){
+  const o=byCode().get(code); if(!o)return false;
+  if(PF.h.some(x=>x.code===code)){if(!silent)toast(`${o.name}은(는) 이미 담겨 있습니다`);return false;}
+  PF.h.push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),code,name:o.name,d:D.trade_date,px:lastPx(o),q,tag:stratName()});
+  pfSave();pfDirty=true;if(!silent)toast(`${o.name} 담음 · 포트폴리오에서 매수가·수량 수정`);return true;}
+function drawPF(){
+  pfDirty=false;
+  const L=T-1, R=ranked(L), rk=new Map(R.map((r,i)=>[r.o.code,i+1])), N=+S.N, K=D.idx.K||[];
+  const today=D.trade_date;
+  let inv=0,val=0;
+  const rows=PF.h.map(h=>{const o=byCode().get(h.code), cur=o?lastPx(o):null, cost=h.px*h.q, v=cur!=null?cur*h.q:null;
+    inv+=cost; val+=v!=null?v:cost;
+    const due=addMonths(h.d,+S.H), r=rk.get(h.code), mb=monthOf(h.d);
+    const kr=K[mb]&&K[L]?(K[L]/K[mb]-1)*100:null, ret=cur!=null?(cur/h.px-1)*100:null;
+    const days=Math.round((new Date(today)-new Date(h.d))/864e5);
+    return {h,o,cur,cost,v,due,r,kr,ret,days};});
+  const tot=inv?(val/inv-1)*100:null;
+  // 코스피 대비: 종목별 매수 금액 가중
+  const kw=inv?rows.reduce((a,x)=>a+(x.kr!=null?x.kr*x.cost:0),0)/inv:null;
+  const realized=PF.sold.reduce((a,s)=>a+(s.sp-s.px)*s.q,0);
+  $('#pfSum').innerHTML=PF.h.length?`<div class="mute" style="font-size:13px">보유 ${PF.h.length}종목 · 매수 ${fmt(Math.round(inv))}원</div>
+    <div class="big ${cls(tot)}" style="font-size:38px;font-weight:800;letter-spacing:-.035em">${pct(tot)}</div>
+    <div class="vs mute" style="font-size:13.5px">평가 ${fmt(Math.round(val))}원 (${val-inv>=0?'+':''}${fmt(Math.round(val-inv))}원) · 같은 시점 코스피 ${pct(kw)}</div>
+    <div class="stats"><div>교체 시기<b>${rows.filter(x=>x.due<=today).length}종목</b></div><div>지금 순위 밖<b>${rows.filter(x=>!x.r||x.r>N).length}종목</b></div><div>실현 손익<b class="${cls(realized)}">${realized?fmt(Math.round(realized/1e4))+'만':'-'}</b></div></div>
+    <p class="note" style="margin-bottom:0">순위 기준: ${esc(stratName())} · 상위 ${N} · 보유 기간 ${hTxt(+S.H)}</p>`
+    :`<div class="empty" style="padding:14px 4px">아직 담은 종목이 없습니다. 순위 탭에서 종목을 눌러 <b>포트폴리오에 담기</b>를 누르거나, 아래에서 직접 추가하세요.</div>`;
+  $('#pfCnt').textContent=PF.h.length?`${PF.h.length}종목`:'';
+  rows.sort((a,b)=>a.h.d<b.h.d?-1:1);
+  $('#pfList').innerHTML=rows.map(x=>{const h=x.h, isDue=x.due<=today, inTop=x.r&&x.r<=N;
+    return `<div class="item pf-item${pfOpen===h.id?' open':''}" data-id="${h.id}"><button class="pf-row" aria-expanded="${pfOpen===h.id}">
+      <span><div class="nm">${esc(h.name)}${isDue?'<span class="tagc due">교체 시기</span>':''}${inTop?`<span class="tagc in">${x.r}위</span>`:'<span class="tagc out">순위 밖</span>'}</div>
+      <div class="sub">${h.d.slice(2).replace(/-/g,'.')} 매수 · ${fmt(h.px)}원 × ${fmt(h.q)}주 · ${x.days}일째</div></span>
+      <span class="rt ${cls(x.ret)}">${pct(x.ret)}<small>${x.cur!=null?fmt(x.cur)+'원':'시세 없음'}</small></span>
+    </button><div class="detail">
+      <dl><dt>평가금액</dt><dd>${x.v!=null?fmt(Math.round(x.v))+'원':'-'} <span class="mute">(${x.v!=null?(x.v-x.cost>=0?'+':'')+fmt(Math.round(x.v-x.cost))+'원':''})</span></dd>
+      <dt>같은 기간 코스피</dt><dd>${pct(x.kr)}</dd>
+      <dt>교체 예정일</dt><dd>${x.due}${isDue?' <span class="mute">(지남)</span>':''}</dd>
+      <dt>지금 순위</dt><dd>${x.r?x.r+'위':'조건 밖'} <span class="mute">${esc(stratName())}</span></dd>
+      <dt>담을 때 전략</dt><dd>${esc(h.tag||'-')}</dd></dl>
+      <div class="grid3"><label>매수일<input class="inp" type="date" data-f="d" value="${h.d}"></label>
+        <label>매수가<input class="inp" inputmode="numeric" data-f="px" value="${h.px}"></label>
+        <label>수량<input class="inp" inputmode="numeric" data-f="q" value="${h.q}"></label></div>
+      <div class="grid3"><label>매도가<input class="inp" inputmode="numeric" data-f="sp" value="${x.cur??''}"></label>
+        <label>매도일<input class="inp" type="date" data-f="sd" value="${today}"></label><span></span></div>
+      <div class="btns"><button class="btn pri" data-act="save">수정 저장</button><button class="btn" data-act="sell">매도 기록</button>
+        <button class="btn warn" data-act="del">삭제</button>
+        <a class="btn" href="https://m.stock.naver.com/domestic/stock/${h.code}/total" target="_blank" rel="noopener" style="text-decoration:none">네이버</a></div>
+    </div></div>`;}).join('')||'';
+  $('#pfList').style.display=rows.length?'':'none';
+  $('#pfSoldT').style.display=$('#pfSold').style.display=PF.sold.length?'':'none';
+  $('#pfSold').innerHTML=PF.sold.slice().reverse().map(s=>{const r=(s.sp/s.px-1)*100;
+    return `<div class="pf-row" style="border-top:1px solid var(--line)"><span><div class="nm" style="font-size:15px">${esc(s.name)}</div>
+      <div class="sub">${s.d.slice(2).replace(/-/g,'.')} → ${s.sd.slice(2).replace(/-/g,'.')} · ${fmt(s.px)} → ${fmt(s.sp)}원 × ${fmt(s.q)}주</div></span>
+      <span class="rt ${cls(r)}">${pct(r)}<small>${(s.sp-s.px)*s.q>=0?'+':''}${fmt(Math.round((s.sp-s.px)*s.q))}원</small></span></div>`;}).join('');
+  $('#pfNames').innerHTML=ST.slice(0,4000).map(o=>`<option value="${esc(o.name)} ${o.code}">`).join('');
+}
+$('#pfList').addEventListener('click',e=>{
+  const it=e.target.closest('.pf-item'); if(!it)return;
+  const id=it.dataset.id, h=PF.h.find(x=>x.id===id);
+  if(e.target.closest('.pf-row')){pfOpen=pfOpen===id?null:id;it.classList.toggle('open',pfOpen===id);return;}
+  const act=e.target.closest('[data-act]'); if(!act||!h)return;
+  const val=f=>{const el=it.querySelector(`[data-f="${f}"]`);return el?el.value.trim():'';}, num=f=>+val(f).replace(/[^0-9.]/g,'');
+  if(act.dataset.act==='save'){
+    if(!(num('px')>0&&num('q')>0&&val('d'))){toast('매수일·매수가·수량을 확인하세요');return;}
+    h.d=val('d');h.px=num('px');h.q=num('q');pfSave();drawPF();toast('저장했습니다');
+  }else if(act.dataset.act==='sell'){
+    if(!(num('sp')>0&&val('sd'))){toast('매도가·매도일을 입력하세요');return;}
+    PF.sold.push({...h,sp:num('sp'),sd:val('sd')});PF.h=PF.h.filter(x=>x.id!==id);pfOpen=null;pfSave();drawPF();toast(`${h.name} 매도 기록`);
+  }else if(act.dataset.act==='del'){
+    if(act.dataset.sure){PF.h=PF.h.filter(x=>x.id!==id);pfOpen=null;pfSave();drawPF();toast('삭제했습니다');}
+    else{act.dataset.sure='1';act.textContent='한 번 더 누르면 삭제';setTimeout(()=>{if(act.isConnected){delete act.dataset.sure;act.textContent='삭제';}},3000);}
+  }
+});
+$('#pfAddBtn').onclick=()=>{const t=$('#pfFind').value.trim(); if(!t)return;
+  const m=t.match(/\b(\d{5}[0-9A-Z])\b/), o=m?byCode().get(m[1]):ST.find(o=>o.name===t)||ST.find(o=>o.name.includes(t));
+  if(!o){toast('검색 대상 종목에 없습니다 (금융·유틸리티는 제외돼 있음)');return;}
+  if(pfAdd(o.code)){$('#pfFind').value='';drawPF();}};
+$('#pfExp').onclick=()=>{$('#pfTxt').value=JSON.stringify(PF);$('#pfTxt').select();toast('백업 글자를 복사해 두세요');};
+$('#pfImp').onclick=()=>{try{const j=JSON.parse($('#pfTxt').value);if(!Array.isArray(j.h))throw 0;PF={h:j.h,sold:j.sold||[]};pfSave();drawPF();toast(`복원: ${PF.h.length}종목`);}
+  catch(e){toast('백업 글자가 올바르지 않습니다');}};
 
 /* ---------- 백테스트 ---------- */
 function dataStart(){for(let m=0;m<T;m++){if(ranked(m).length<Math.max(+S.N*2,30))continue;
@@ -460,26 +599,26 @@ function drawBT(){
     <div class="big ${cls(cagr)}">${pct(cagr)}<span style="font-size:15px;font-weight:650" class="mute"> /년</span></div>
     <div class="vs">누적 ${pct(last,0)} · 코스피 연 ${K?pct(K.c):'-'} · 코스닥 연 ${Q?pct(Q.c):'-'}</div>
     ${eqSvg(R)}
-    <div class="legend"><span><i style="background:var(--acc)"></i>마법공식</span><span><i style="background:var(--k)"></i>코스피</span><span><i style="background:var(--q)"></i>코스닥</span></div>
+    <div class="legend"><span><i style="background:var(--acc)"></i>${esc(stratName())}</span><span><i style="background:var(--k)"></i>코스피</span><span><i style="background:var(--q)"></i>코스닥</span></div>
     <div class="stats"><div>최대 낙폭<b class="dn">${pct(R.mdd,0)}</b></div><div>코스피 누적<b>${K?pct(K.t,0):'-'}</b></div><div>코스닥 누적<b>${Q?pct(Q.t,0):'-'}</b></div></div>`;
   const H=+S.H, goal=(Math.pow(1.15,H/12)-1)*100, full=R.coh.filter(c=>c.full);
-  $('#cohTitle').textContent=`아무 달에 시작해 ${H===12?'1년':H+'개월'} 보유했다면`;
+  $('#cohTitle').textContent=`아무 달에 시작해 ${hTxt(H)} 보유했다면`;
   if(full.length){
     const rs=full.map(c=>c.r), beat=full.filter(c=>c.b!=null&&c.r>c.b).length;
     $('#btDist').innerHTML=`<div class="mute" style="font-size:13px">시작 달 ${full.length}개 · 매번 상위 ${S.N}종목 같은 금액</div>
-      <div class="big ${cls(med(rs))}">${pct(med(rs))}</div><div class="vs">${H}개월 수익 중앙값 · 평균 ${pct(mean(rs))} · 최저 ${pct(Math.min(...rs),0)} · 최고 ${pct(Math.max(...rs),0)}</div>
+      <div class="big ${cls(med(rs))}">${pct(med(rs))}</div><div class="vs">${hTxt(H)} 수익 중앙값 · 평균 ${pct(mean(rs))} · 최저 ${pct(Math.min(...rs),0)} · 최고 ${pct(Math.max(...rs),0)}</div>
       <div class="stats"><div>${S.mkt==='Q'?'코스닥':'코스피'}보다 나음<b>${Math.round(beat/full.length*100)}%</b></div><div>손실 난 달<b>${Math.round(full.filter(c=>c.r<0).length/full.length*100)}%</b></div><div>연 15% 목표 이상<b>${Math.round(full.filter(c=>c.r>=goal).length/full.length*100)}%</b></div></div>
-      ${H!==12?`<p class="note" style="margin-bottom:0">${H}개월 기준 연 15% 환산 목표는 ${pct(goal)}입니다.</p>`:''}`;
-  }else $('#btDist').innerHTML=`<div class="empty">${H}개월을 다 채운 시작 달이 아직 없습니다.</div>`;
+      ${H!==12?`<p class="note" style="margin-bottom:0">${hTxt(H)} 기준 연 15% 환산 목표는 ${pct(goal)}입니다.</p>`:''}`;
+  }else $('#btDist').innerHTML=`<div class="empty">${hTxt(H)}을 다 채운 시작 달이 아직 없습니다. 보유 기간을 줄이거나 시작 연도를 앞당겨 보세요.</div>`;
   const span=Math.max(10,...R.coh.flatMap(c=>[Math.abs(c.r),Math.abs(c.b||0)]));
   const bar=(v,c)=>{const w=Math.min(50,Math.abs(v)/span*50);return `<i class="${c||''}" style="${v>=0?`left:50%`:`left:${50-w}%`};width:${w}%;${c?'':`background:var(${v>=0?'--up':'--down'})`}"></i>`;};
-  $('#btCoh').innerHTML=`<div class="cb" style="font-size:11.5px;color:var(--sub)"><span>시작</span><span>막대 = 마법공식, 회색 줄 = ${S.mkt==='Q'?'코스닥':'코스피'}</span><span class="v" style="font-weight:600">수익</span><span class="w">지수</span></div>`+
+  $('#btCoh').innerHTML=`<div class="cb" style="font-size:11.5px;color:var(--sub)"><span>시작</span><span>막대 = 전략, 회색 줄 = ${S.mkt==='Q'?'코스닥':'코스피'}</span><span class="v" style="font-weight:600">수익</span><span class="w">지수</span></div>`+
     R.coh.slice().reverse().map(c=>`<div class="cb"><span>${D.months[c.m].slice(2,7).replace('-','.')}${c.full?'':' <small class="mute">진행</small>'}</span>
       <span class="t">${bar(c.r)}${c.b!=null?bar(c.b,'ix'):''}</span><span class="v ${cls(c.r)}">${pct(c.r,0)}</span><span class="w">${pct(c.b,0)}</span></div>`).join('');
   if(R.ind.length){
     const w=R.ind.filter(v=>v>0).length/R.ind.length*100, md=med(R.ind), mn=mean(R.ind);
     const it=[['평균 > 0',mn>0],['승률 ≥ 51%',w>=51],['중앙값 > 0',md>0]];
-    $('#btPick').innerHTML=`<div class="mute" style="font-size:13px">${fmt(R.ind.length)}건 (같은 종목이 여러 달 포함될 수 있음) · ${H}개월 보유, 비용 차감</div>
+    $('#btPick').innerHTML=`<div class="mute" style="font-size:13px">${fmt(R.ind.length)}건 (같은 종목이 여러 달 포함될 수 있음) · ${hTxt(H)} 보유, 비용 차감</div>
       <div class="stats"><div>승률<b>${w.toFixed(0)}%</b></div><div>중앙값<b class="${cls(md)}">${pct(md)}</b></div><div>평균<b class="${cls(mn)}">${pct(mn)}</b></div></div>
       <div class="checks">${it.map(([t,ok])=>`<div class="ck ${ok?'ok':'no'}">${t}<b>${ok?'✓ 충족':'✗ 미달'}</b></div>`).join('')}</div>`;
   }else $('#btPick').innerHTML='<div class="empty">아직 끝난 건이 없습니다.</div>';
@@ -488,7 +627,7 @@ function drawBT(){
 /* ---------- 조작 ---------- */
 function bindSeg(id,k,after){$$(`#${id} button`).forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.v)===String(S[k]));
   b.onclick=()=>{S[k]=isNaN(+b.dataset.v)?b.dataset.v:+b.dataset.v;save();$$(`#${id} button`).forEach(x=>x.setAttribute('aria-pressed',x===b));after();};});}
-const redraw=()=>{drawMode();drawSum();drawRank();if($('#v-bt').classList.contains('on'))drawBT();else btDirty=true;};
+const redraw=()=>{drawMode();drawSum();drawRank();pfDirty=true;if($('#v-bt').classList.contains('on'))drawBT();else btDirty=true;};
 let btDirty=true;
 $$('#fMode button').forEach(b=>b.onclick=()=>{const v=b.dataset.v;
   if(v==='M')S.mode='M';
@@ -497,12 +636,16 @@ $$('#fMode button').forEach(b=>b.onclick=()=>{const v=b.dataset.v;
   else S.sel=[...S.sel,v];
   save();redraw();});
 [['fMf','mf'],['fMkt','mkt'],['fCap','cap'],['fLiq','liq'],['fN','N']].forEach(([id,k])=>bindSeg(id,k,redraw));
-[['bH','H'],['bFee','fee'],['bFrom','from']].forEach(([id,k])=>bindSeg(id,k,drawBT));
+[['bFee','fee'],['bFrom','from']].forEach(([id,k])=>bindSeg(id,k,drawBT));
+const hTxt=h=>h%12===0?`${h/12}년`:(h>12?`${Math.floor(h/12)}년 ${h%12}개월`:`${h}개월`);
+{const el=$('#bH'),out=$('#bHv');el.value=S.H;out.textContent=hTxt(+S.H);let tm=null;
+ el.oninput=()=>{S.H=+el.value;out.textContent=hTxt(S.H);save();clearTimeout(tm);tm=setTimeout(()=>{drawBT();pfDirty=true;},150);};}
 $$('nav button').forEach(b=>b.onclick=()=>{const v=b.dataset.v;
   $$('nav button').forEach(x=>x.toggleAttribute('aria-current',x===b));if(b.hasAttribute('aria-current'))b.setAttribute('aria-current','page');
   $$('.view').forEach(x=>x.classList.toggle('on',x.id==='v-'+v));
-  $('#filters').style.display=v==='how'?'none':'';
+  $('#filters').style.display=v==='how'||v==='pf'?'none':'';
   if(v==='bt'&&btDirty&&D){btDirty=false;drawBT();}
+  if(v==='pf'&&D)drawPF();
   store.set('tab',v);window.scrollTo(0,0);});
 
 fetch('data/mf.json?t='+Date.now()).then(r=>{if(!r.ok)throw new Error(r.status);return r.json();}).then(j=>{
