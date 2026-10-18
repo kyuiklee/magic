@@ -26,6 +26,7 @@ _s = requests.Session()
 _s.headers.update(UA)
 EXCL_SECTOR = {"Finance", "Real Estate", "Utilities"}
 LAG_Q, LAG_A = 45, 80
+FVER = 2                     # 2: 매출액 추가
 
 
 def _load(name, default):
@@ -67,7 +68,7 @@ def universe(min_cap=100e6):
                 data = []
         for x in data:
             rows.append({"ticker": x.get("symbol", "").strip(), "name": x.get("name", ""), "mkt": mk,
-                         "sector": x.get("sector", ""), "cap": _num(x.get("marketCap"))})
+                         "sector": x.get("sector", ""), "industry": x.get("industry", ""), "cap": _num(x.get("marketCap"))})
     df = pd.DataFrame(rows)
     if df.empty:
         cached = _load("us_univ.pkl.gz", None)
@@ -89,11 +90,11 @@ def universe(min_cap=100e6):
 
 
 # ---------------- 재무 (Yahoo fundamentals-timeseries) ----------------
-TYPES = ["OperatingIncome", "NetIncomeCommonStockholders", "NetIncome", "NetIncomeIncludingNoncontrollingInterests",
+TYPES = ["TotalRevenue", "OperatingIncome", "NetIncomeCommonStockholders", "NetIncome", "NetIncomeIncludingNoncontrollingInterests",
          "TotalAssets", "CurrentAssets", "CurrentLiabilities", "TotalLiabilitiesNetMinorityInterest",
          "StockholdersEquity", "TotalEquityGrossMinorityInterest", "OperatingCashFlow", "CapitalExpenditure",
          "FreeCashFlow", "OrdinarySharesNumber", "ShareIssued"]
-FLOWS = {"ebit": ["OperatingIncome"], "ni": ["NetIncomeIncludingNoncontrollingInterests", "NetIncome"],
+FLOWS = {"rev": ["TotalRevenue"], "ebit": ["OperatingIncome"], "ni": ["NetIncomeIncludingNoncontrollingInterests", "NetIncome"],
          "nip": ["NetIncomeCommonStockholders", "NetIncome"], "ocf": ["OperatingCashFlow"],
          "capex": ["CapitalExpenditure"], "fcfy": ["FreeCashFlow"]}
 STOCKS = {"ta": ["TotalAssets"], "tl": ["TotalLiabilitiesNetMinorityInterest"], "ca": ["CurrentAssets"],
@@ -177,7 +178,7 @@ def parse_ts(j):
     if not rows:
         return None
     df = pd.DataFrame(rows)
-    for k in ("ebit", "ni", "nip", "ocf", "capex", "fcfy", "ta", "tl", "ca", "cl", "eq", "eqp"):
+    for k in ("rev", "ebit", "ni", "nip", "ocf", "capex", "fcfy", "ta", "tl", "ca", "cl", "eq", "eqp"):
         df[k] = df[k] / 1e6
     df["fcf"] = np.where(np.isfinite(df["fcfy"]), df["fcfy"],
                          df["ocf"] + np.where(np.isfinite(df["capex"]), df["capex"], 0))
@@ -189,14 +190,14 @@ def parse_ts(j):
         top = r["end"]
         out.append(r)
     df = pd.DataFrame(out).drop_duplicates("avail", keep="last").set_index("avail")
-    return df[["ql", "ebit", "ni", "nip", "fcf", "ta", "tl", "ca", "cl", "eq", "eqp", "sh"]]
+    return df[["ql", "rev", "ebit", "ni", "nip", "fcf", "ta", "tl", "ca", "cl", "eq", "eqp", "sh"]]
 
 
 def load_fund(univ, minutes):
     fac = _load("us_fund.pkl.gz", {})            # 티커 → {df, at}
     now = time.time()
     tick = list(univ["ticker"])
-    todo = sorted([t for t in tick if t not in fac or now - fac[t]["at"] > 3 * 86400],
+    todo = sorted([t for t in tick if t not in fac or now - fac[t]["at"] > 3 * 86400 or fac[t].get("v", 1) < FVER],
                   key=lambda t: fac.get(t, {}).get("at", 0))
     print(f"미국 재무 요청 {len(todo)}건 (3일마다 새로), 최대 {minutes}분")
 
@@ -220,7 +221,7 @@ def load_fund(univ, minutes):
                 if isinstance(df, str):
                     errs += 1
                     continue                      # 실패는 다음 실행 때 다시
-                fac[t] = {"df": df, "at": now}
+                fac[t] = {"df": df, "at": now, "v": FVER}
                 done += 1
             if (i // chunk) % 5 == 4:
                 print(f"  재무 {i + chunk}/{len(todo)} ({time.time() - t0:.0f}초, 실패 {errs})")
@@ -354,14 +355,15 @@ def main():
             row = f.iloc[r]
             sh = row["sh"] * adj(f.index[r]) if np.isfinite(row["sh"]) else None
             fl.append([mi] + [rnd(row[k], 0) for k in ("ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp")]
-                      + [rnd(sh, 0)])
+                      + [rnd(sh, 0), rnd(row["rev"], 0)])
         if not fl:
             continue
         last_sh = next((x[-1] for x in reversed(fl) if x[-1]), None)
         if not last_sh:
             continue
         stocks.append([t, str(meta.loc[t, "name"]), meta.loc[t, "mkt"], int(last_sh), s0,
-                       [rnd(x, 2) for x in px], [rnd(x, 1) for x in am], fl, f["ql"].iloc[-1]])
+                       [rnd(x, 2) for x in px], [rnd(x, 1) for x in am], fl, f["ql"].iloc[-1],
+                       (str(meta.loc[t, "industry"]) if "industry" in meta.columns else "") or None])
     out = {
         "region": "US", "cap_div": 1e6, "currency": "USD",
         "generated_at": f"{now:%Y-%m-%d %H:%M}",
@@ -369,8 +371,8 @@ def main():
         "fund": True,
         "months": [f"{d:%Y-%m-%d}" for d in months],
         "idx": ix,
-        "fields": ["code", "name", "mkt", "shares", "s0", "px", "amt20", "f", "ql"],
-        "f_fields": ["mi", "ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp", "sh"],
+        "fields": ["code", "name", "mkt", "shares", "s0", "px", "amt20", "f", "ql", "ind"],
+        "f_fields": ["mi", "ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp", "sh", "rev"],
         "note": "미국(Yahoo 재무): 금액 백만 달러, 시세 달러, mkt K=NYSE Q=나스닥, idx K=S&P500 Q=나스닥종합, sh=분할 보정 발행주식수, 재무 사용 시점 추정(분기+45일, 연간+80일)",
         "stocks": stocks,
     }

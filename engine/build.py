@@ -125,14 +125,14 @@ def main():
                 continue
             prev = r
             row = f.iloc[r]
-            fl.append([mi] + [rnd(row[k], 0) for k in ("ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp")])
+            fl.append([mi] + [rnd(row[k], 0) for k in ("ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp", "rev")])
         if not fl:
             n_nof += 1
             continue
         lr = f.iloc[-1]
         stocks.append([code, name, "Q" if m["market"] == "KOSDAQ" else "K", int(sh), s0,
                        [rnd(x, 0) for x in px], [rnd(x, 0) for x in am], fl,
-                       lr["ql"] if isinstance(lr["ql"], str) else None])
+                       lr["ql"] if isinstance(lr["ql"], str) else None, ind or None])
 
     out = {
         "generated_at": f"{now:%Y-%m-%d %H:%M}",
@@ -140,8 +140,8 @@ def main():
         "fund": bool(fund),
         "months": [f"{d:%Y-%m-%d}" for d in months],
         "idx": ix,
-        "fields": ["code", "name", "mkt", "shares", "s0", "px", "amt20", "f", "ql"],
-        "f_fields": ["mi", "ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp"],
+        "fields": ["code", "name", "mkt", "shares", "s0", "px", "amt20", "f", "ql", "ind"],
+        "f_fields": ["mi", "ebit", "ni", "ta", "tl", "ca", "cl", "fcf", "nip", "eqp", "rev"],
         "note": "px·amt20은 months[s0]부터. f는 [월 번호, 영업이익TTM, 순이익TTM, 자산총계, 부채총계, 유동자산, 유동부채, FCF TTM, 지배주주 순이익 TTM, 지배주주 자본] (억 원), "
                 "그 월말부터 다음 항목 전까지 적용. 금융·유틸리티 제외",
         "stocks": stocks,

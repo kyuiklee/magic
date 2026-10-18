@@ -147,6 +147,19 @@ textarea.inp{min-height:70px;font-size:12px;margin-top:8px}
 .st-list div{display:grid;grid-template-columns:24px 1fr auto;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13.5px}
 .st-list span:first-child{color:var(--sub);font-weight:700;text-align:center}
 .st-list .v{text-align:right;color:var(--sub);font-size:12.5px}
+.an{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+.an h4{font-size:14px;font-weight:750;margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mg{font-size:12px;font-weight:800;padding:2px 9px;border-radius:999px}
+.mg.W{background:var(--acc);color:var(--surface)} .mg.N{background:var(--acc-soft);color:var(--acc)}
+.mg.X{background:var(--track);color:var(--sub)} .mg.U{background:var(--warn-soft);color:var(--warn)}
+.an ul{list-style:none;font-size:13px;line-height:1.55}
+.an li{padding:2px 0;display:grid;grid-template-columns:16px 1fr;gap:4px}
+.an li i{font-style:normal;font-weight:800}
+.an li i.ok{color:var(--acc)} .an li i.no{color:var(--sub)}
+.tp{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 6px}
+.tp span{font-size:12px;font-weight:700;padding:3px 9px;border-radius:7px;background:var(--track)}
+.tp span.p{background:var(--ink);color:var(--bg)}
+.spark{display:block;width:100%;height:auto;margin:6px 0 2px}
 nav{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);
   padding:6px 0 calc(6px + env(safe-area-inset-bottom));z-index:5}
 nav .wrap{display:flex}
@@ -479,6 +492,7 @@ function drawRank(){
       <dt>거래대금</dt><dd>${RG.amt(r.amt)} <span class="mute">20일 평균</span></dd>
       ${per?`<dt>종목당 금액</dt><dd>${REG==='KR'?fmt(Math.round(per/1e4))+'만 원':RG.cash(per)} ≈ ${fmt(Math.floor(per/r.p))}주</dd>`:''}
       <dt>${REG==='KR'?'종목코드':'티커'}</dt><dd>${esc(o.code)}</dd></dl>
+      <div class="an-slot" data-code="${esc(o.code)}"></div>
       <a class="go" href="${RG.link(o.code)}" target="_blank" rel="noopener">${RG.linkName} 열기</a>
       <button class="go" data-add="${o.code}" style="margin-left:6px">포트폴리오에 담기</button>
     </div></div>`;}).join('');
@@ -493,7 +507,100 @@ function drawRank(){
 }
 $('#picks').addEventListener('click',e=>{const ad=e.target.closest('[data-add]');if(ad){pfAdd(ad.dataset.add);return;}
   const b=e.target.closest('.item>button');if(!b)return;
+  const slot=b.parentElement.querySelector('.an-slot');
+  if(slot&&!slot.dataset.done){slot.dataset.done=1;const o=byCode().get(slot.dataset.code);if(o)slot.innerHTML=analysisHTML(o);}
   const it=b.parentElement,o=!it.classList.contains('open');it.classList.toggle('open',o);b.setAttribute('aria-expanded',o);});
+
+/* ---------- 해자·기업 유형 분석 ----------
+   모닝스타 방식의 '증거' 부분만 숫자로: 투하자본수익률(ROIC)이 자본비용을 몇 년째 넘는지, 이익률이 안정적인지,
+   이익이 현금으로 들어오는지. 해자 원천은 업종으로 추정. 기업 유형은 피터 린치 분류 + 지속 상승형·해자 강한 기업 */
+const MOAT_SRC=[
+  [/소프트웨어|software|EDP|자료처리|정보서비스|Computer Communications|Business Services/i,'전환비용','고객이 쓰던 소프트웨어·서비스를 바꾸기 어려움'],
+  [/포털|인터넷|플랫폼|Internet|Interactive|Advertising|광고|게임|Payment|Exchange/i,'네트워크 효과','사용자가 많을수록 가치가 커짐'],
+  [/의약|제약|생물|바이오|Pharma|Biotech|Biological|Medical|의료|Diagnostic/i,'무형자산(특허·인허가)','특허·허가로 경쟁자 진입이 막힘'],
+  [/음료|담배|화장품|식료품|과자|Beverage|Tobacco|Food|Apparel|Footwear|의복|Restaurant|Cosmetic|Household/i,'무형자산(브랜드)','브랜드로 더 비싸게 팔 수 있음'],
+  [/철도|Railroad|Pipeline|파이프|공항|항만|통신|Telecom|폐기물|Waste|Environmental|도시가스|Water/i,'효율적 규모','시장이 작거나 규제로 경쟁자가 들어오기 어려움'],
+  [/반도체|Semiconductor|소매|Retail|Department|Discount|도매|Distribution/i,'원가 우위·규모','규모나 공정으로 남보다 싸게 만들거나 팔 수 있음']];
+const CYC=/철강|금속|Steel|Metal|Mining|광업|화학|Chemical|해운|해상|Marine|Shipping|정유|석유|Oil|Gas|건설|Homebuild|Construction|자동차|Auto|반도체|Semiconductor|조선|선박|Aluminum|Paper|종이|펄프|시멘트|Cement|Building|기계|Machinery|항공|Airline/i;
+function yearly(o){
+  // 최근부터 1년 간격 TTM 재무 (같은 행 중복 제거)
+  const out=[],seen=new Set();
+  for(let y=0;y<6;y++){const m=T-1-12*y; if(m<0)break; const fi=o.fi[m]; if(fi<0)continue;
+    if(seen.has(fi))continue; seen.add(fi); out.push({...o.f[fi],m});}
+  return out;}
+function analyze(o){
+  const Y=yearly(o), L=T-1, p=pxAt(o,L)??pxHold(o,L), f=o.f[o.fi[L]]||{};
+  const mcap=p&&o.fi[L]>=0?p*(f.sh||o.shares)/(D.cap_div||1e8):null;
+  const tax=REG==='KR'?0.22:0.21;
+  const roic=Y.map(x=>x.ebit!=null&&x.ta!=null&&x.cl!=null&&x.ta-x.cl>0?x.ebit*(1-tax)/(x.ta-x.cl)*100:null);
+  const R=roic.filter(v=>v!=null), n=R.length;
+  const mar=Y.map(x=>x.rev>0&&x.ebit!=null?x.ebit/x.rev*100:null).filter(v=>v!=null);
+  const conv=Y.map(x=>x.fcf!=null&&x.ni>0?x.fcf/x.ni:null).filter(v=>v!=null);
+  const avg=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:null;
+  const sd=a=>{if(a.length<2)return null;const m=avg(a);return Math.sqrt(avg(a.map(v=>(v-m)**2)));};
+  const rAvg=avg(R), rMin=n?Math.min(...R):null, mAvg=avg(mar), mCv=mar.length>=2&&mAvg>0?sd(mar)/mAvg:null, cAvg=avg(conv);
+  const ind=o.ind||'';
+  // 해자 등급 (정량 추정): 세후 ROIC가 자본비용(약 8%)을 얼마나 꾸준히 넘는지
+  let grade='U', gTxt='판단 보류';
+  if(n>=3){
+    if(rAvg>=15&&rMin>=10&&(mCv==null||mCv<=0.35)&&(cAvg==null||cAvg>=0.6)){grade='W';gTxt='넓은 해자 추정';}
+    else if(rAvg>=10&&rMin>=6){grade='N';gTxt='좁은 해자 추정';}
+    else {grade='X';gTxt='해자 없음 추정';}
+  }
+  const trend=n>=3?(R[0]-R[n-1]>=3?'개선':(R[0]-R[n-1]<=-3?'약화':'안정')):null;
+  const src=MOAT_SRC.filter(([re])=>re.test(ind)).map(([,a,b])=>({a,b}));
+  const ck=[
+    [n>=3&&rMin>=8, `세후 ROIC ${n?`평균 ${rAvg.toFixed(0)}% · 최저 ${rMin.toFixed(0)}%`:'계산 불가'} (최근 ${n}년, 자본비용 약 8%)`],
+    [mCv!=null&&mCv<=0.35, mar.length?`영업이익률 평균 ${mAvg.toFixed(1)}% · ${mCv!=null?(mCv<=0.2?'매우 안정':mCv<=0.35?'안정':'들쭉날쭉'):'1개 연도'}`:'영업이익률: 매출 데이터 없음'],
+    [cAvg!=null&&cAvg>=0.8, cAvg!=null?`이익의 현금 전환 ${Math.round(cAvg*100)}% (FCF ÷ 순이익)`:'현금 전환: 데이터 없음'],
+    [trend==='개선'||trend==='안정', trend?`ROIC 추세 ${trend} (${R[n-1].toFixed(0)}% → ${R[0].toFixed(0)}%)`:'추세: 데이터 부족']];
+  // 기업 유형
+  const g=(k)=>{const v=Y.map(x=>x[k]);const a=v[0],b=v[v.length-1],yrs=v.length-1;return yrs>=2&&a>0&&b>0?(Math.pow(a/b,1/yrs)-1)*100:null;};
+  const gr=g('rev')??g('ebit');
+  const loss=Y.slice(1).some(x=>(x.ebit!=null&&x.ebit<=0)||(x.nip??x.ni)<=0), nowOk=Y.length&&Y[0].ebit>0&&(Y[0].nip??Y[0].ni)>0;
+  const lossAll=Y.some(x=>(x.ebit!=null&&x.ebit<=0)||(x.nip??x.ni)<=0);
+  const eb=Y.map(x=>x.ebit).filter(v=>v!=null), ebCv=eb.length>=3&&avg(eb)>0?sd(eb)/avg(eb):null;
+  const eq=f.eqp??(f.ta!=null&&f.tl!=null?f.ta-f.tl:null), pbr=mcap&&eq>0?mcap/eq:null;
+  const big=mcap!=null&&mcap>=(REG==='KR'?10000:10000);
+  // 주가: 최근 3년 연 수익과 해마다 올랐는지
+  const yr=[1,2,3].map(k=>{const a=pxAt(o,L-12*k),b=pxAt(o,L-12*(k-1))??pxHold(o,L-12*(k-1));return a&&b?b/a-1:null;});
+  const p3=pxAt(o,L-36), pc=p3&&p?(Math.pow(p/p3,1/3)-1)*100:null, upYears=yr.filter(v=>v!=null&&v>0).length;
+  const ebUp=Y.slice(0,-1).filter((x,i)=>x.ebit!=null&&Y[i+1].ebit!=null&&x.ebit>Y[i+1].ebit).length;
+  const T_=[];
+  if(loss&&nowOk) T_.push(['턴어라운드','몇 년 사이 적자(또는 영업손실)가 있었는데 지금은 흑자']);
+  else if(eb.length>=3&&nowOk&&Y[0].ebit>=2*Math.min(...eb.slice(1))&&Math.min(...eb.slice(1))<0.5*Math.max(...eb.slice(1))) T_.push(['턴어라운드','이익이 크게 줄었다가 두 배 넘게 회복']);
+  if(gr!=null&&gr>=20&&!lossAll) T_.push(['고성장',`${g('rev')!=null?'매출':'영업이익'} 연 ${gr.toFixed(0)}% 성장`]);
+  if(pc!=null&&pc>=15&&upYears===3&&ebUp>=Math.max(1,Y.length-2)) T_.push(['지속 상승형',`주가 3년 연 ${pc.toFixed(0)}%, 3년 내리 상승 · 이익도 꾸준히 증가`]);
+  if(grade==='W') T_.push(['해자 강한 기업','높은 ROIC를 꾸준히 유지']);
+  if(big&&gr!=null&&gr>=5&&gr<20&&!lossAll) T_.push(['대형 우량주','덩치가 크고 연 5~20% 꾸준히 성장']);
+  if(CYC.test(ind)||(ebCv!=null&&ebCv>0.6)) T_.push(['경기순환형',CYC.test(ind)?'업황에 따라 이익이 크게 오르내리는 업종':'이익 변동이 큼']);
+  if(pbr!=null&&pbr<0.6) T_.push(['자산주',`PBR ${pbr.toFixed(2)}배 — 장부가치보다 크게 쌈`]);
+  if(gr!=null&&gr<5&&gr>-5&&!lossAll&&(mCv==null||mCv<=0.35)) T_.push(['저성장 안정형',`성장률 연 ${gr.toFixed(0)}% · 이익은 안정적`]);
+  if(!T_.length) T_.push(['분류 어려움','데이터가 짧거나 뚜렷한 특징이 없음']);
+  return {grade,gTxt,src,ck,types:T_,R:roic.slice().reverse(),Y,n};
+}
+function analysisHTML(o){
+  const a=analyze(o);
+  const yrs=a.Y.map(x=>D.months[x.m].slice(2,4)).reverse();
+  // ROIC 연도별 막대
+  const vals=a.R, W=300,H=56, mx=Math.max(20,...vals.filter(v=>v!=null).map(Math.abs)), bw=W/Math.max(vals.length,1);
+  const bars=vals.map((v,i)=>v==null?'':`<rect x="${i*bw+bw*0.2}" y="${v>=0?H/2-(v/mx)*(H/2-4):H/2}" width="${bw*0.6}" height="${Math.abs(v)/mx*(H/2-4)}" rx="2" fill="var(${v>=8?'--acc':v>=0?'--k':'--down'})"/><text x="${i*bw+bw/2}" y="${H+10}" font-size="9" fill="var(--sub)" text-anchor="middle">'${yrs[i]} ${v.toFixed(0)}%</text>`).join('');
+  const hurdle=H/2-(8/mx)*(H/2-4);
+  const ms=RG===RC.US?`<a class="go" href="https://www.morningstar.com/stocks/${o.mkt==='Q'?'xnas':'xnys'}/${encodeURIComponent(o.code.toLowerCase().replace('-','.'))}/quote" target="_blank" rel="noopener">모닝스타 공식 해자 등급 보기</a>`:'';
+  return `<div class="an">
+    <h4>경제적 해자 <span class="mg ${a.grade}">${a.gTxt}</span></h4>
+    ${vals.length?`<svg class="spark" viewBox="0 0 ${W} ${H+14}" role="img" aria-label="연도별 세후 ROIC"><line x1="0" x2="${W}" y1="${H/2}" y2="${H/2}" stroke="var(--line)"/><line x1="0" x2="${W}" y1="${hurdle}" y2="${hurdle}" stroke="var(--acc)" stroke-dasharray="3 3" opacity=".6"/>${bars}</svg>
+      <div class="note" style="margin:0 0 6px">막대 = 연도별 세후 ROIC, 점선 = 자본비용(약 8%)</div>`:''}
+    <ul>${a.ck.map(([ok,t])=>`<li><i class="${ok?'ok':'no'}">${ok?'✓':'·'}</i><span>${t}</span></li>`).join('')}</ul>
+    ${a.src.length?`<div class="note" style="margin:8px 0 2px"><b style="color:var(--ink)">가능한 해자 원천 (업종 기준 추정)</b></div><ul>${a.src.map(x=>`<li><i class="ok">·</i><span><b>${x.a}</b> — ${x.b}</span></li>`).join('')}</ul>`:''}
+    <h4 style="margin-top:12px">기업 유형</h4>
+    <div class="tp">${a.types.map((t,i)=>`<span class="${i?'':'p'}">${t[0]}</span>`).join('')}</div>
+    <ul>${a.types.map(t=>`<li><i class="no">·</i><span><b>${t[0]}</b> — ${t[1]}</span></li>`).join('')}</ul>
+    ${o.ind?`<div class="note" style="margin:6px 0 0">업종: ${esc(o.ind)}</div>`:''}
+    <p class="note" style="margin:6px 0 0">모닝스타 공식 등급이 아니라, 모닝스타가 해자의 근거로 보는 숫자(꾸준히 높은 ROIC·안정된 이익률·현금 전환)를 최근 ${a.n}년 재무로 계산한 추정입니다. 해자 원천은 업종으로 짐작한 것이라 실제 사업 내용과 다를 수 있습니다.</p>
+    ${ms}
+  </div>`;
+}
 
 /* ---------- 포트폴리오 ---------- */
 let PF;

@@ -2,7 +2,7 @@
 
 - 다중회사 주요계정 API(fnlttMultiAcnt)로 한 번에 100개 회사씩 받음 (오닐 앱과 같은 방식)
 - 연결재무제표가 있으면 연결, 없으면 별도
-- 손익: 영업이익(EBIT 대용)·당기순이익을 분기값으로 바꾼 뒤 최근 4분기 합(TTM)
+- 손익: 영업이익(EBIT 대용)·당기순이익·매출액을 분기값으로 바꾼 뒤 최근 4분기 합(TTM)
 - 재무상태표: 자산총계·부채총계·유동자산·유동부채 (그 보고서 기준 시점 값)
 - FCF: cashflow.py (단일회사 전체 재무제표의 현금흐름표)
 금액 단위는 억 원.
@@ -19,7 +19,7 @@ CACHE = os.path.join(ROOT, "cache", "fund.pkl.gz")
 API = "https://opendart.fss.or.kr/api"
 REPRTS = ("11013", "11012", "11014", "11011")          # 1분기, 반기, 3분기, 사업보고서
 Q_END = {"11013": (3, 31), "11012": (6, 30), "11014": (9, 30), "11011": (12, 31)}
-FLOW = ("op", "ni")                                    # 손익 (기간 값)
+FLOW = ("op", "ni", "rev")                             # 손익 (기간 값)
 STOCK = ("ta", "tl", "ca", "cl", "eq")                 # 재무상태표 (시점 값)
 YEARS_BACK = 6
 CORP = {}
@@ -38,6 +38,8 @@ def _kind(nm):
         return "ni"
     if n.startswith("영업이익"):
         return "op"
+    if n.startswith(("매출액", "수익(매출액)", "영업수익")) or n == "매출":
+        return "rev"
     if n.startswith("자산총계"):
         return "ta"
     if n.startswith("부채총계"):
@@ -113,13 +115,16 @@ def _parse(rows):
 
 def load_raw(codes, key, refresh_hours=20):
     """(연도, 보고서) 단위로 받아서 캐시. 최근 2개 연도는 하루 한 번 새로 받음"""
-    cache = {"raw": {}, "at": {}, "corp": None, "corp_at": 0, "v": 2}
+    cache = {"raw": {}, "at": {}, "corp": None, "corp_at": 0, "v": 3}
     if os.path.exists(CACHE):
         try:
             with gzip.open(CACHE, "rb") as f:
                 c = pickle.load(f)
-            if c.get("v") == 2:
+            if c.get("v") == 3:
                 cache = c
+            elif c.get("v") == 2:                # 매출액 추가: 예전 보고서는 남겨 두고(새로 받기 전까지 사용) 모두 다시 받기 표시
+                cache = {**c, "v": 3, "need": set(c.get("raw", {}))}
+                print(f"실적 캐시 형식 변경(매출액 추가) — 보고서 {len(cache['need'])}개를 다시 받습니다")
         except Exception as e:
             print(f"실적 캐시 읽기 실패: {e}")
     now = time.time()
@@ -145,7 +150,7 @@ def load_raw(codes, key, refresh_hours=20):
                 continue
             k = (y, rp)
             stale = y >= y1 - 1 and now - cache["at"].get(k, 0) > refresh_hours * 3600
-            if k not in cache["raw"] or stale:
+            if k not in cache["raw"] or stale or k in cache.get("need", ()):
                 todo.append(k)
     batches = [corps[i:i + 100] for i in range(0, len(corps), 100)]
     print(f"DART 요청 {len(todo)}개 보고서 × {len(batches)}묶음")
@@ -171,6 +176,7 @@ def load_raw(codes, key, refresh_hours=20):
         cache["raw"][k] = _parse(rows)
         if not any(r is None for r in res):
             cache["at"][k] = now
+            cache.get("need", set()).discard(k)
         print(f"  DART {k[0]}/{k[1]} {len(cache['raw'][k])}종목 ({n}/{len(todo)}, {time.time() - t0:.0f}초)")
         save()                               # 중간 저장: 시간 초과로 끊겨도 다음 실행은 이어서
     print(f"DART 수집 {time.time() - t0:.0f}초")
@@ -190,7 +196,7 @@ def _cum_ttm(cf, y, qn, k):
 
 def series(raw, code, cf=None):
     """종목 하나의 지표를 공시일(다음 날) 기준 시계열로.
-    열: ebit, ni, fcf, nip(지배주주 순이익) (최근 4분기 합), ta, tl, ca, cl, eq, eqp(지배주주 자본) (억 원), ql"""
+    열: ebit, ni, rev, fcf, nip(지배주주 순이익) (최근 4분기 합), ta, tl, ca, cl, eq, eqp(지배주주 자본) (억 원), ql"""
     Q = {}
     years = sorted({y for y, _ in raw})
     for y in years:
@@ -222,7 +228,7 @@ def series(raw, code, cf=None):
         top = q
         four = [Q.get(q - i) for i in range(4)]
         r = {"avail": Q[q]["avail"], "ql": Q[q]["ql"]}
-        for k, out in (("op", "ebit"), ("ni", "ni")):
+        for k, out in (("op", "ebit"), ("ni", "ni"), ("rev", "rev")):
             v = [x[k] for x in four if x is not None]
             r[out] = sum(v) / 1e8 if len(v) == 4 and all(np.isfinite(v)) else np.nan
         for k in STOCK:
