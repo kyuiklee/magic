@@ -160,6 +160,18 @@ textarea.inp{min-height:70px;font-size:12px;margin-top:8px}
 .tp span{font-size:12px;font-weight:700;padding:3px 9px;border-radius:7px;background:var(--track)}
 .tp span.p{background:var(--ink);color:var(--bg)}
 .spark{display:block;width:100%;height:auto;margin:6px 0 2px}
+.wt{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--surface);border-radius:14px;overflow:hidden}
+.wt th,.wt td{padding:7px 6px;text-align:right;border-top:1px solid var(--line);white-space:nowrap}
+.wt th{font-size:11px;color:var(--sub);font-weight:600;border-top:0}
+.wt th:first-child,.wt td:first-child{text-align:left;position:sticky;left:0;background:var(--surface)}
+.wt td:first-child{font-weight:650;max-width:92px;overflow:hidden;text-overflow:ellipsis}
+.wt-wrap{overflow-x:auto;border-radius:14px;margin:10px 0}
+.lk-card{background:var(--surface);border-radius:14px;padding:14px;margin:10px 0}
+.lk-card .hd{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.lk-card .hd .nm{font-size:17px}
+.mgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px 6px;margin:12px 0 4px}
+.mgrid div{font-size:11.5px;color:var(--sub)}
+.mgrid b{display:block;font-size:15px;color:var(--ink);font-weight:720}
 nav{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);
   padding:6px 0 calc(6px + env(safe-area-inset-bottom));z-index:5}
 nav .wrap{display:flex}
@@ -231,6 +243,21 @@ nav button[aria-current=page]{color:var(--ink)}
     <div id="stCards"></div>
     <p class="note" id="stOther"></p>
     <p class="note">성과는 백테스트 탭과 같은 계산입니다(분할 운용, 월말 종가, 비용 차감). 승률·중앙값은 종목 한 건씩 기준입니다. <b>추천</b> 전략은 국내·미국 데이터로 조건 수천 개를 시험해, 종목 수·시총·거래대금을 조금 바꿔도 결과가 유지되는 조건을 고른 것입니다. 과거 결과가 앞으로를 보장하지 않습니다.</p>
+  </section>
+
+  <!-- ===== 종목 조회 ===== -->
+  <section class="view" id="v-lk" aria-label="종목 조회">
+    <div class="guide" style="margin-top:0">
+      <div class="ctl-row" style="margin-top:0"><label for="lkFind"><b>종목 조회</b></label><small>검색기 조건과 상관없이 모든 지표</small></div>
+      <input class="inp" id="lkFind" list="lkNames" placeholder="종목명 또는 코드·티커 (예: 삼성전자, 005930, AAPL)" autocomplete="off">
+      <datalist id="lkNames"></datalist>
+      <div class="btns"><button class="btn pri" id="lkGo">조회</button><button class="btn" id="lkAdd">관심 목록에 추가</button></div>
+    </div>
+    <div id="lkOne"></div>
+    <h2 class="sec-title" id="lkWT">관심 목록<span class="mute" id="lkCnt" style="font-size:13px;font-weight:600;margin-left:6px"></span></h2>
+    <div class="wt-wrap"><table class="wt" id="lkTable"></table></div>
+    <div id="lkCards"></div>
+    <p class="note">PER·PBR·ROE·ROA는 지배주주 기준, 이익은 최근 4분기 합입니다. 배당수익률은 직전 연도 주당배당금 ÷ 현재 주가(유지 가정). 금융·보험·증권·유틸리티 종목은 데이터에 없어 조회되지 않습니다. 표의 이름을 누르면 상세가 열립니다.</p>
   </section>
 
   <!-- ===== 포트폴리오 ===== -->
@@ -327,6 +354,7 @@ nav button[aria-current=page]{color:var(--ink)}
 <nav aria-label="메뉴"><div class="wrap">
   <button data-v="rank" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>순위</button>
   <button data-v="st"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>내 전략</button>
+  <button data-v="lk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>조회</button>
   <button data-v="pf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h16v11H4zM9 8V5h6v3M4 13h16"/></svg>포트폴리오</button>
   <button data-v="bt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16M5 15l4-5 4 3 6-7"/></svg>백테스트</button>
   <button data-v="how"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5zM9 12h6M9 16h6M9 8h3"/></svg>방법</button>
@@ -659,6 +687,91 @@ function analysisHTML(o){
   </div>`;
 }
 
+/* ---------- 종목 조회 ---------- */
+// 검색기 조건과 상관없이 한 종목의 지표를 모두 계산
+function metricsOf(o){
+  const L=T-1, p=pxAt(o,L)??pxHold(o,L), fi=o.fi[L]; if(p==null||fi<0)return null;
+  const f=o.f[fi], mcap=p*(f.sh||o.shares)/(D.cap_div||1e8);
+  const ni=f.nip??f.ni, eq=f.eqp??(f.ta!=null&&f.tl!=null?f.ta-f.tl:null), d=o.dvm[L];
+  const ic=f.ta!=null&&f.cl!=null?f.ta-f.cl:null, ev=f.tl!=null?mcap+f.tl:null;
+  const pct_=(a,b)=>a!=null&&b!=null&&b!==0?a/b*100:null;
+  return {p,f,mcap,ni,eq,amt:amtAt(o,L),
+    per:ni>0?mcap/ni:null, pbr:eq>0?mcap/eq:null, roe:eq>0&&ni!=null?ni/eq*100:null, roa:f.ta>0&&ni!=null?ni/f.ta*100:null,
+    dy:d>0?d/p*100:(d===0?0:null), dps:isNaN(d)?null:d, fcfy:f.fcf!=null?f.fcf/mcap*100:null,
+    margin:f.rev>0&&f.ebit!=null?f.ebit/f.rev*100:null, debt:eq>0&&f.tl!=null?f.tl/eq*100:null,
+    ey:f.ebit!=null&&ev>0?f.ebit/ev*100:null, roc:f.ebit!=null&&ic>0?f.ebit/ic*100:null,
+    ch1:(()=>{const a=pxAt(o,L-12);return a?(p/a-1)*100:null;})()};
+}
+let WL=[], lkShown=null, lkOpen=new Set();
+const wlKey=()=>'watch_'+REG;
+function loadWL(){WL=store.get(wlKey(),[]);if(!Array.isArray(WL))WL=[];}
+function findStock(t){t=(t||'').trim();if(!t)return null;const last=t.split(/\s+/).pop();
+  return byCode().get(last)||byCode().get(last.toUpperCase())||ST.find(o=>o.name===t)||ST.find(o=>o.name.toLowerCase()===t.toLowerCase())||ST.find(o=>o.name.toLowerCase().includes(t.toLowerCase()));}
+const n1=(v,d=1,suf='')=>v==null||!isFinite(v)?'-':v.toFixed(d)+suf;
+function rankInfo(o){
+  // 지금 고른 스크리닝 방법·범위에서 몇 위인지 (조건 밖이면 이유를 짧게)
+  const R=ranked(T-1), i=R.findIndex(r=>r.o.code===o.code);
+  return i>=0?`${stratName()} 기준 <b>${i+1}위</b> / ${R.length}종목 ${i<+S.N?'<span class="tagc in">상위 '+S.N+'</span>':''}`:`${stratName()} 기준 <span class="mute">순위 밖 (적자·조건 미달·종목 범위 밖)</span>`;}
+function stockCard(o,open){
+  const m=metricsOf(o); if(!m)return `<div class="lk-card"><b>${esc(o.name)}</b> <span class="mute">최근 시세나 재무가 없습니다.</span></div>`;
+  const a=analyze(o), inWL=WL.includes(o.code);
+  return `<div class="lk-card" data-code="${esc(o.code)}">
+    <div class="hd"><div class="nm">${esc(o.name)}<span class="mk ${o.mkt}">${MKT[o.mkt]}</span> <span class="mg ${a.grade}" style="font-size:11px;vertical-align:2px">${a.gTxt.replace(' 추정','')}</span></div>
+      <div style="text-align:right"><b>${RG.price(m.p)}</b><div class="mute" style="font-size:12px">1년 ${pct(m.ch1,0)}</div></div></div>
+    <div class="px">시총 ${money(m.mcap)} · 거래대금 ${m.amt!=null?RG.amt(m.amt):'-'} · ${o.ql||''}${o.ind?' · '+esc(o.ind):''}</div>
+    <div class="mgrid">
+      <div>PER<b>${n1(m.per,1,'배')}</b></div><div>PBR<b>${n1(m.pbr,2,'배')}</b></div><div>배당수익률<b>${m.dy==null?'-':n1(m.dy,2,'%')}</b></div>
+      <div>ROE<b>${n1(m.roe,1,'%')}</b></div><div>ROA<b>${n1(m.roa,1,'%')}</b></div><div>FCF 수익률<b class="${cls(m.fcfy)}">${n1(m.fcfy,1,'%')}</b></div>
+      <div>영업이익률<b>${n1(m.margin,1,'%')}</b></div><div>부채비율<b>${n1(m.debt,0,'%')}</b></div><div>이익수익률<b>${n1(m.ey,1,'%')}</b></div>
+    </div>
+    <div class="note" style="margin:6px 0 0">${rankInfo(o)}</div>
+    <div class="tp" style="margin-top:8px">${a.types.map((t,i)=>`<span class="${i?'':'p'}">${t[0]}</span>`).join('')}</div>
+    ${open?`<dl style="display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13.5px;margin-top:8px">
+      <dt class="mute">영업이익</dt><dd>${money(m.f.ebit)} <span class="mute">매출 ${money(m.f.rev)}</span></dd>
+      <dt class="mute">순이익</dt><dd>${money(m.f.ni)}${m.f.nip!=null&&m.f.nip!==m.f.ni?` <span class="mute">지배주주 ${money(m.f.nip)}</span>`:''}</dd>
+      <dt class="mute">FCF</dt><dd>${money(m.f.fcf)}</dd>
+      <dt class="mute">자본</dt><dd>${money(m.eq)} <span class="mute">자산 ${money(m.f.ta)}</span></dd>
+      <dt class="mute">주당배당금</dt><dd>${m.dps==null?'-':(m.dps>0?RG.price(m.dps):'무배당')}</dd>
+      <dt class="mute">자본수익률(ROC)</dt><dd>${n1(m.roc,0,'%')} <span class="mute">마법공식 기준</span></dd></dl>${analysisHTML(o)}`:''}
+    <div class="btns"><button class="btn" data-lk="toggle">${open?'접기':'해자·유형 자세히'}</button>
+      <button class="btn" data-lk="${inWL?'unwatch':'watch'}">${inWL?'관심 목록에서 빼기':'관심 목록에 추가'}</button>
+      <button class="btn" data-lk="pf">포트폴리오에 담기</button>
+      <a class="btn" href="${RG.link(o.code)}" target="_blank" rel="noopener" style="text-decoration:none">${RG.linkShort}</a></div>
+  </div>`;}
+function drawLK(){
+  loadWL();
+  $('#lkNames').innerHTML=ST.map(o=>`<option value="${esc(o.name)} ${o.code}">`).join('');
+  const one=lkShown?byCode().get(lkShown):null;
+  $('#lkOne').innerHTML=one?stockCard(one,lkOpen.has('one:'+one.code)):'';
+  const items=WL.map(c=>byCode().get(c)).filter(Boolean);
+  $('#lkCnt').textContent=items.length?`${items.length}종목`:'';
+  $('#lkWT').style.display=$('#lkTable').parentElement.style.display=items.length?'':'none';
+  $('#lkTable').innerHTML=items.length?`<thead><tr><th>종목</th><th>PER</th><th>PBR</th><th>ROE</th><th>ROA</th><th>배당</th><th>FCF</th><th>이익률</th><th>해자</th><th>1년</th></tr></thead><tbody>`+
+    items.map(o=>{const m=metricsOf(o);if(!m)return `<tr><td>${esc(o.name)}</td><td colspan="9" class="mute">데이터 없음</td></tr>`;const g=gradeAt(o,T-1);
+      return `<tr data-code="${esc(o.code)}"><td>${esc(o.name)}</td><td>${n1(m.per,1)}</td><td>${n1(m.pbr,2)}</td><td>${n1(m.roe,0,'%')}</td><td>${n1(m.roa,1,'%')}</td><td>${m.dy==null?'-':n1(m.dy,1,'%')}</td><td class="${cls(m.fcfy)}">${n1(m.fcfy,1,'%')}</td><td>${n1(m.margin,0,'%')}</td><td><span class="mg ${g}" style="font-size:10.5px;padding:1px 6px">${{W:'넓음',N:'좁음',X:'없음',U:'보류'}[g]}</span></td><td class="${cls(m.ch1)}">${pct(m.ch1,0)}</td></tr>`;}).join('')+'</tbody>':'';
+  $('#lkCards').innerHTML=items.map(o=>stockCard(o,lkOpen.has('wl:'+o.code))).join('');
+}
+function lkLookup(){const o=findStock($('#lkFind').value);
+  if(!o){toast('찾는 종목이 없습니다 (금융·유틸리티는 데이터에 없음)');return null;}
+  lkShown=o.code; $('#lkFind').value=''; drawLK(); $('#lkOne').scrollIntoView({behavior:'smooth',block:'start'}); return o;}
+$('#lkGo').onclick=lkLookup;
+$('#lkFind').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();lkLookup();}});
+$('#lkAdd').onclick=()=>{const o=$('#lkFind').value.trim()?findStock($('#lkFind').value):(lkShown&&byCode().get(lkShown));
+  if(!o){toast('먼저 종목을 입력하세요');return;}
+  loadWL(); if(!WL.includes(o.code)){WL.push(o.code);store.set(wlKey(),WL);} $('#lkFind').value=''; drawLK(); toast(`${o.name} 관심 목록에 추가`);};
+document.getElementById('v-lk').addEventListener('click',e=>{
+  const tr=e.target.closest('#lkTable tr[data-code]');
+  if(tr){const el=document.querySelector(`#lkCards .lk-card[data-code="${CSS.escape(tr.dataset.code)}"]`);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});return;}
+  const b=e.target.closest('[data-lk]'); if(!b)return;
+  const card=b.closest('.lk-card'), code=card.dataset.code, inOne=!!b.closest('#lkOne'), key=(inOne?'one:':'wl:')+code;
+  const act=b.dataset.lk; loadWL();
+  if(act==='toggle'){lkOpen.has(key)?lkOpen.delete(key):lkOpen.add(key);}
+  else if(act==='watch'){if(!WL.includes(code))WL.push(code);store.set(wlKey(),WL);toast('관심 목록에 추가');}
+  else if(act==='unwatch'){WL=WL.filter(c=>c!==code);store.set(wlKey(),WL);toast('관심 목록에서 뺐습니다');}
+  else if(act==='pf'){pfAdd(code);return;}
+  drawLK();
+});
+
 /* ---------- 포트폴리오 ---------- */
 let PF;
 function loadPF(){PF=store.get(RG.pf,{h:[],sold:[]});if(!PF||!PF.h)PF={h:[],sold:[]};}
@@ -931,7 +1044,8 @@ const hTxt=h=>h%12===0?`${h/12}년`:(h>12?`${Math.floor(h/12)}년 ${h%12}개월`
 $$('nav button').forEach(b=>b.onclick=()=>{const v=b.dataset.v;
   $$('nav button').forEach(x=>x.toggleAttribute('aria-current',x===b));if(b.hasAttribute('aria-current'))b.setAttribute('aria-current','page');
   $$('.view').forEach(x=>x.classList.toggle('on',x.id==='v-'+v));
-  $('#filters').style.display=v==='how'||v==='pf'||v==='st'?'none':'';
+  $('#filters').style.display=v==='how'||v==='pf'||v==='st'||v==='lk'?'none':'';
+  if(v==='lk'&&D)drawLK();
   if(v==='st'&&D)drawST();
   if(v==='bt'&&btDirty&&D){btDirty=false;drawBT();}
   if(v==='pf'&&D)drawPF();
@@ -953,6 +1067,7 @@ function showData(j){
   if($('#v-bt').classList.contains('on')){btDirty=false;drawBT();}
   if($('#v-pf').classList.contains('on'))drawPF();
   if($('#v-st').classList.contains('on'))drawST();
+  lkShown=null; if($('#v-lk').classList.contains('on'))drawLK();
 }
 function loadRegion(first){
   RG=RC[REG]; MKT=RG.mkt; applyRegionSettings(); setupRegionFilters(); drawSum();
